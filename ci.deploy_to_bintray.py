@@ -22,11 +22,11 @@ Repack.run(["conan", "remote", "add", CONAN_REMOTE_NAME, CONAN_REMOTE_URL, "--in
 Repack.run(["conan", "user", BINTRAY_USER, "-p", BINTRAY_API_KEY, "-r", CONAN_REMOTE_NAME])
 
 # Upload the built package and recipe.
-Repack.run(["conan", "upload", package.package_id(), "-r", CONAN_REMOTE_NAME, "-all", "-c"])
+Repack.run(["conan", "upload", package.package_id(), "-r", CONAN_REMOTE_NAME, "--all", "-c"])
 
 # Create an additional alias with the branch name slug and upload it too.
 Repack.run(["conan", "alias",
             package.package_id(version=BRANCH_SLUG),
             package.package_id()])
 Repack.run(["conan", "upload",
-            package.package_id(version=BRANCH_SLUG), "-r", CONAN_REMOTE_NAME, "-all", "-c"])
+            package.package_id(version=BRANCH_SLUG), "-r", CONAN_REMOTE_NAME, "--all", "-c"])
