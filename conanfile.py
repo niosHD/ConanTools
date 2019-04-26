@@ -8,6 +8,9 @@ from ConanTools import Conan, Git, Repack, Version
 class ConanToolsRecipe(ConanFile):
     name = "ConanTools"
     version = Version.semantic()
+    description = "Helpers and tools that make working with conan (e.g., scripting) more convenient."
+    url = "https://github.com/niosHD/ConanTools"
+    license = "MIT"
     exports = 'ConanTools/*.py'
     build_policy = "missing"
 
