@@ -16,6 +16,8 @@ def branch(cwd: Optional[str] = None) -> Optional[str]:
     refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads"],
                stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
                check=True).stdout.strip()
+    if refs == "":
+        return None
     refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
     # Return the first ref where the revisions match.
     for sha, name in refs:
