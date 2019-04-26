@@ -1,6 +1,5 @@
 # Single source of truth regarding the package version.
 import os
-from subprocess import run, PIPE, DEVNULL
 from ConanTools import Git
 
 
@@ -13,13 +12,11 @@ __version_file_dir__ = os.path.dirname(os.path.abspath(__file__))
 def is_release(cwd=None):
     """Returns True if the repository is currently on a tag or not a git repository at all.
     """
-    if not Git.is_repo(cwd):
+    if not Git.is_repository(cwd):
         return True
-    try:
-        print(Git.get_tag(cwd))
+    if Git.tag(cwd) is not None:
         return True
-    except Exception:
-        return False
+    return False
 
 
 def _format_git_version(default, cwd, digits, mod_sep, metadata_sep):

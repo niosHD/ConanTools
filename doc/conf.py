@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import sys
 import os
 
-# Add root directory to the python path to enable import of the package
-# via autodoc.
+# Add root directory to the python path to enable import of the package via autodoc.
 sys.path.insert(0, os.path.abspath('../..'))
 
 
@@ -36,8 +34,8 @@ def setup(app):
     #                     '-t', 'doc/templates',
     #                     '-o', 'doc/_generated', 'ConanTools'])
 
-# -- General configuration ------------------------------------------------
 
+# -- General configuration ------------------------------------------------
 extensions = [
     'sphinx.ext.autodoc',        # extracts docstrings from python code
     'sphinx_autodoc_typehints',  # extracts type hints
