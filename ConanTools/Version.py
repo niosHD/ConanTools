@@ -5,7 +5,7 @@ from ConanTools import Git
 
 # The following version string denotes the version that is either currently
 # developed or the actual version in case of a release.
-__version_string__ = '0.1.0'
+__version_string__ = '0.1.1'
 __version_file_dir__ = os.path.dirname(os.path.abspath(__file__))
 
 
