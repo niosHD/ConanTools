@@ -1,0 +1,21 @@
+sudo: required
+
+services:
+  - docker
+
+jobs:
+  include:
+  # - stage: test
+  #   name: pytest
+  #   script:
+  #   - docker run --rm -ti -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash -c "python3 -m pytest"
+
+  - stage: deploy
+    name: bintray
+    script:
+    - docker run --rm -ti -e BINTRAY_API_KEY -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash -c "pip3 install -e .;pip3 install conan;python3 ci.deploy_to_bintray.py"
+
+  - name: pypi
+    if: tag IS present
+    script:
+    - docker run --rm -ti -e PYPI_PASSWORD -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash -c "python3 setup.py sdist bdist_wheel;python3 -m twine upload -u nioshd -p $PYPI_PASSWORD dist/*"
