@@ -18,7 +18,7 @@ CONAN_CHANNEL = os.environ.get("CONAN_CHANNEL", CONAN_CHANNEL)
 CONAN_REMOTE_NAME = os.environ.get("CONAN_REMOTE_NAME", "bintray_{}".format(BINTRAY_USER))
 
 # Build the package.
-package = Conan.PID(recipe="conanfile.py", user=CONAN_USER, channel=CONAN_CHANNEL)
+package = Conan.Reference(recipe="conanfile.py", user=CONAN_USER, channel=CONAN_CHANNEL)
 package.create()
 
 # Add the bintray remote and authenticate against it.

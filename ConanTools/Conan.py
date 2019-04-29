@@ -60,11 +60,11 @@ def get_recipe_field(recipe, field_name, cwd=None):
         return None
 
     get_recipe_field._recipe_cache = getattr(get_recipe_field, "_recipe_cache", {})
-    pid = get_recipe_field._recipe_cache.setdefault(recipe, PID(recipe=recipe))
-    return pid.get_recipe_field(field_name)
+    ref = get_recipe_field._recipe_cache.setdefault(recipe, Reference(recipe=recipe))
+    return ref.get_recipe_field(field_name)
 
 
-class PID():
+class Reference():
     def __init__(self, name=None, version=None, user=None, channel=None, recipe=None, cwd=None):
         if recipe and cwd and not os.path.isabs(recipe):
             recipe = os.path.normpath(os.path.join(cwd, recipe))
