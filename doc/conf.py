@@ -76,6 +76,8 @@ todo_include_todos = True
 
 html_theme = 'nature'
 
+html_static_path = ['static']
+
 # If true, links to the reST sources are added to the pages.
 html_show_sourcelink = False
 
