@@ -5,10 +5,10 @@ services:
 
 jobs:
   include:
-  # - stage: test
-  #   name: pytest
-  #   script:
-  #   - docker run --rm -ti -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash -c "python3 -m pytest"
+  - stage: test
+    name: pytest
+    script:
+    - docker run --rm -ti -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash -c "python3 -m pytest"
 
   - stage: deploy
     name: bintray

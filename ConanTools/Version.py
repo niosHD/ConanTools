@@ -9,8 +9,8 @@ __version_string__ = '0.2.0'
 __version_file_dir__ = os.path.dirname(os.path.abspath(__file__))
 
 
-def is_release(cwd=None):
-    """Returns True if the repository is currently on a tag or not a git repository at all.
+def is_release(cwd: str = None) -> bool:
+    """Returns True if the folder is a git repository and on a tag or not a git repository at all.
     """
     if not Git.is_repository(cwd):
         return True
@@ -19,7 +19,8 @@ def is_release(cwd=None):
     return False
 
 
-def _format_git_version(default, cwd, digits, mod_sep, metadata_sep):
+def _format_git_version(default: str, cwd: str, digits: int,
+                        mod_sep: str, metadata_sep: str) -> str:
     if is_release(cwd):
         return default
     desc_str = Git.describe(cwd)
@@ -36,7 +37,8 @@ def _format_git_version(default, cwd, digits, mod_sep, metadata_sep):
 
 
 # https://www.python.org/dev/peps/pep-0440
-def pep440(default=__version_string__, cwd=__version_file_dir__, digits=10):
+def pep440(default: str = __version_string__,
+           cwd: str = __version_file_dir__, digits: int = 10) -> str:
     """Returns the default version string when building a tag or when
     no git repository has been found. Otherwise the git describe output,
     formatted according to PEP440, is returned as version string.
@@ -45,7 +47,8 @@ def pep440(default=__version_string__, cwd=__version_file_dir__, digits=10):
 
 
 # https://semver.org/spec/v2.0.0.html
-def semantic(default=__version_string__, cwd=__version_file_dir__, digits=10):
+def semantic(default: str = __version_string__,
+             cwd: str = __version_file_dir__, digits: int = 10) -> str:
     """Returns the default version string when building a tag or when
     no git repository has been found. Otherwise the git describe output,
     formatted according to semantic versioning, is returned as version string.
