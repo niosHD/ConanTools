@@ -24,8 +24,8 @@ class ConanImportTxtFile:
     def add_package_string(self, name, refstring):
         self._package_ids[name] = refstring
 
-    def add_package(self, ref, user=None, channel=None):
-        self._package_ids[ref.name] = ref.package_id(user=user, channel=channel)
+    def add_package(self, ref):
+        self._package_ids[ref.name] = str(ref)
 
     def install(self, remote=None, profiles=None, build=None, cwd=None):
         # write a conanfile in txt format with the package ids the imports
