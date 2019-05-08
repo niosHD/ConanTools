@@ -80,13 +80,13 @@ def test_recipe_reference(mock_inspect):
 
 def test_recipe_export(mock_run, mock_inspect):
     # Test call when export fails.
-    recipe = Conan.Recipe("foobar.py")
+    recipe = Conan.Recipe("/foobar.py")
     mock_run.returncode = 1
     output = io.StringIO()
     with redirect_stdout(output):
         with pytest.raises(ValueError):
             recipe.export("foo", "testing", version="1.1.1")
-    assert "$ conan export foobar.py ConanTools/1.1.1@foo/testing" in output.getvalue()
+    assert "$ conan export /foobar.py ConanTools/1.1.1@foo/testing" in output.getvalue()
 
     # Test call when export succeeds.
     recipe = Conan.Recipe("foobar.py", cwd="/tmp")
@@ -99,13 +99,13 @@ def test_recipe_export(mock_run, mock_inspect):
 
 def test_recipe_create(mock_run, mock_inspect):
     # Test call when create fails.
-    recipe = Conan.Recipe("foobar.py")
+    recipe = Conan.Recipe("/foobar.py")
     mock_run.returncode = 1
     output = io.StringIO()
     with redirect_stdout(output):
         with pytest.raises(ValueError):
             recipe.create("bar", "testing", remote="baz", profiles=['a.p'], cwd="/foo/fizz")
-    assert ("[/foo/fizz] $ conan create foobar.py ConanTools/0.1.1-post7+ga21edb7f08@bar/testing "
+    assert ("[/foo/fizz] $ conan create /foobar.py ConanTools/0.1.1-post7+ga21edb7f08@bar/testing "
             "--profile a.p --build outdated --remote baz") == output.getvalue().strip()
 
     # Test call when create succeeds.
@@ -113,21 +113,22 @@ def test_recipe_create(mock_run, mock_inspect):
     mock_run.returncode = 0
     output = io.StringIO()
     with redirect_stdout(output):
-        recipe.create("bar", "testing", version="5.6.8", build="foo")
-    assert "$ conan create /tmp/foobar.py ConanTools/5.6.8@bar/testing --build foo" \
+        recipe.create("bar", "testing", version="5.6.8", build="foo", options={"key": True})
+    assert "$ conan create /tmp/foobar.py ConanTools/5.6.8@bar/testing --build foo -o key=True" \
         in output.getvalue()
 
 
-def test_recipe_install(mock_run, mock_inspect):
+def test_recipe_install(mock_run):
     # Test call when install fails.
-    recipe = Conan.Recipe("foobar.py")
+    recipe = Conan.Recipe("/foobar.py")
     mock_run.returncode = 1
     output = io.StringIO()
     with redirect_stdout(output):
         with pytest.raises(ValueError):
-            recipe.install(build_folder="/build", profiles=['a.p'], remote="baz")
-    assert ("[/build] $ conan install foobar.py "
-            "--profile a.p --build outdated --remote baz") == output.getvalue().strip()
+            recipe.install(build_folder="/build", profiles=['a.p'], options={"key": True},
+                           remote="baz")
+    assert ("[/build] $ conan install /foobar.py "
+            "--profile a.p --build outdated --remote baz -o key=True") == output.getvalue().strip()
 
     # Test call when install succeeds.
     recipe = Conan.Recipe("foobar.py", cwd="/tmp")
@@ -135,19 +136,19 @@ def test_recipe_install(mock_run, mock_inspect):
     output = io.StringIO()
     with redirect_stdout(output):
         recipe.install()
-    assert ("[/tmp/_build/ConanTools] $ conan install /tmp/foobar.py "
+    assert ("[/tmp/_build] $ conan install /tmp/foobar.py "
             "--build outdated") == output.getvalue().strip()
 
 
-def test_recipe_build(mock_run, mock_inspect):
+def test_recipe_build(mock_run):
     # Test call when build fails.
-    recipe = Conan.Recipe("foobar.py")
+    recipe = Conan.Recipe("/foobar.py")
     mock_run.returncode = 1
     output = io.StringIO()
     with redirect_stdout(output):
         with pytest.raises(ValueError):
             recipe.build(src_folder="/src", build_folder="/build", pkg_folder="/pkg")
-    assert ("[/build] $ conan build foobar.py --source-folder=/src "
+    assert ("[/build] $ conan build /foobar.py --source-folder=/src "
             "--package-folder=/pkg") == output.getvalue().strip()
 
     # Test call when build succeeds.
@@ -156,19 +157,19 @@ def test_recipe_build(mock_run, mock_inspect):
     output = io.StringIO()
     with redirect_stdout(output):
         recipe.build()
-    assert ("[/tmp/_build/ConanTools] $ conan build /tmp/foobar.py --source-folder=/tmp "
-            "--package-folder=/tmp/_install/ConanTools") == output.getvalue().strip()
+    assert ("[/tmp/_build] $ conan build /tmp/foobar.py --source-folder=/tmp "
+            "--package-folder=/tmp/_install") == output.getvalue().strip()
 
 
-def test_recipe_package(mock_run, mock_inspect):
+def test_recipe_package(mock_run):
     # Test call when package fails.
-    recipe = Conan.Recipe("foobar.py")
+    recipe = Conan.Recipe("/foobar.py")
     mock_run.returncode = 1
     output = io.StringIO()
     with redirect_stdout(output):
         with pytest.raises(ValueError):
             recipe.package(src_folder="/src", build_folder="/build", pkg_folder="/pkg")
-    assert ("[/build] $ conan package foobar.py --source-folder=/src "
+    assert ("[/build] $ conan package /foobar.py --source-folder=/src "
             "--package-folder=/pkg") == output.getvalue().strip()
 
     # Test call when package succeeds.
@@ -177,5 +178,5 @@ def test_recipe_package(mock_run, mock_inspect):
     output = io.StringIO()
     with redirect_stdout(output):
         recipe.package()
-    assert ("[/tmp/_build/ConanTools] $ conan package /tmp/foobar.py --source-folder=/tmp "
-            "--package-folder=/tmp/_install/ConanTools") == output.getvalue().strip()
+    assert ("[/tmp/_build] $ conan package /tmp/foobar.py --source-folder=/tmp "
+            "--package-folder=/tmp/_install") == output.getvalue().strip()

@@ -89,9 +89,9 @@ def test_reference_install(mock_run):
     output = io.StringIO()
     with redirect_stdout(output):
         with pytest.raises(ValueError):
-            ref.install(remote="baz", profiles=['a.p'], cwd="/foo/bar")
+            ref.install(remote="baz", profiles=['a.p'], options={"key": True}, cwd="/foo/bar")
     assert ("[/foo/bar] $ conan install foo/1.2.3@bar/testing "
-            "--profile a.p --build outdated --remote baz") == output.getvalue().strip()
+            "--profile a.p --build outdated --remote baz -o key=True") == output.getvalue().strip()
 
     # Test call when the package could be installed.
     mock_run.returncode = 0

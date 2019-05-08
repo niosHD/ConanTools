@@ -1,35 +1,19 @@
 import json
 import os
 import subprocess as sp
-import sys
+
 import tempfile
+import ConanTools
 import ConanTools.Hack as Hack
 
 CONAN_PROGRAM = os.environ.get("CONAN_PROGRAM", "conan")
 
 
-# TODO make this helper more similar to subprocess.run
 def run(args, cwd=None, stdout=None, stderr=None, ignore_returncode=False,
         conan_program=CONAN_PROGRAM):
-    cwd = os.path.abspath(cwd if cwd is not None else os.getcwd())
-    os.makedirs(cwd, exist_ok=True)
     args = [conan_program] + args
-    print("[%s] $ %s" % (cwd, " ".join(args)))
-    sys.stdout.flush()
-    result = sp.run(args, stdout=stdout, stderr=stderr, cwd=cwd)
-    if stdout == sp.PIPE:
-        result.stdout = result.stdout.decode().strip()
-    if stderr == sp.PIPE:
-        result.stderr = result.stderr.decode().strip()
-    if ignore_returncode is False and result.returncode != 0:
-        if stdout == sp.PIPE:
-            print(result.stdout, file=sys.stdout)
-        if stderr == sp.PIPE:
-            print(result.stderr, file=sys.stderr)
-        raise ValueError(
-            "Executing command \"%s\" failed! (returncode=%d)" %
-            (" ".join(args), result.returncode))
-    return result
+    return ConanTools.run(args, cwd=cwd, stdout=stdout, stderr=stderr,
+                          ignore_returncode=ignore_returncode)
 
 
 def _format_arg_list(values, argument):
@@ -46,11 +30,12 @@ def _format_arg_list(values, argument):
 # FIXME empty lists in python are evaluated as False -> it is not possible
 #       to specify no build flag at the moment or to suppress the use of the Hack functions
 #       without specifying profile/build flags
-def run_build(cmd, args, remote, profiles, build, cwd):
+def run_build(cmd, args, remote, profiles, build, options, cwd):
     profile_args = _format_arg_list(profiles or Hack.get_cl_profiles(), "--profile")
     build_args = _format_arg_list(build or Hack.get_cl_build_flags() or "outdated", "--build")
     remote_args = _format_arg_list(remote or [], "--remote")
-    run([cmd] + args + profile_args + build_args + remote_args, cwd=cwd)
+    option_args = _format_arg_list(["{}={}".format(k, v) for k, v in options.items()] or [], "-o")
+    run([cmd] + args + profile_args + build_args + remote_args + option_args, cwd=cwd)
 
 
 def get_recipe_field(recipe_path, field_name, cwd=None):
@@ -117,8 +102,9 @@ class Reference():
         remote_args = _format_arg_list(remote or [], "--remote")
         run(["download", str(self), "--recipe"] + remote_args)
 
-    def install(self, remote=None, profiles=None, build=None, cwd=None):
-        run_build("install", [str(self)], remote=remote, profiles=profiles, build=build, cwd=cwd)
+    def install(self, remote=None, profiles=None, build=None, options={}, cwd=None):
+        run_build("install", [str(self)], remote=remote, profiles=profiles, options=options,
+                  build=build, cwd=cwd)
 
     def set_remote(self, remote):
         run(["remote", "add_ref", str(self), remote])
@@ -133,10 +119,23 @@ class Reference():
 
 
 class Recipe():
-    def __init__(self, path, cwd=None):
-        if path and cwd and not os.path.isabs(path):
+    def __init__(self, path, cwd=None, src_folder=None, build_folder=None, pkg_folder=None):
+        # Make the recipe path absolute.
+        cwd = cwd or os.getcwd()
+        if not os.path.isabs(path):
             path = os.path.normpath(os.path.join(cwd, path))
         self._path = path
+
+        # Setup the default folders for building the recipe using the local flow.
+        self._src_folder = src_folder or os.path.dirname(self._path)
+        if not os.path.isabs(self._src_folder):
+            self._src_folder = os.path.normpath(os.path.join(cwd, self._src_folder))
+
+        # FIXME The build folder should be temporary by default and a default pkg folder
+        #       should probably not exist. Maybe even no defaults should be setup at all
+        #       and a helper function for the full local flow is more appropriate.
+        self._build_folder = build_folder or os.path.join(self._src_folder, "_build")
+        self._pkg_folder = pkg_folder or os.path.join(self._src_folder, "_install")
 
     def get_field(self, field_name):
         self._recipe_field_cache = getattr(self, "_recipe_field_cache", None)
@@ -165,39 +164,36 @@ class Recipe():
         return ref
 
     def create(self, user, channel, name=None, version=None, remote=None,
-               profiles=None, build=None, cwd=None):
+               profiles=None, options={}, build=None, cwd=None):
         ref = self.reference(name=name, version=version, user=user, channel=channel)
         run_build("create", [self._path, str(ref)],
-                  remote=remote, profiles=profiles, build=build, cwd=cwd)
+                  remote=remote, profiles=profiles, options=options, build=build, cwd=cwd)
         return ref
 
-    def _default_src_folder(self):
-        recipe_dir = os.path.dirname(os.path.abspath(self._path))
-        return recipe_dir
-
-    def _default_build_folder(self):
-        recipe_dir = os.path.dirname(os.path.abspath(self._path))
-        return os.path.join(recipe_dir, "_build", self.get_field("name"))
-
-    def _default_pkg_folder(self):
-        recipe_dir = os.path.dirname(os.path.abspath(self._path))
-        return os.path.join(recipe_dir, "_install", self.get_field("name"))
-
-    def install(self, build_folder=None, profiles=None, build=None, remote=None):
-        build_folder = build_folder or self._default_build_folder()
-        run_build("install", [self._path], remote=remote, profiles=profiles, build=build,
-                  cwd=build_folder)
+    def install(self, build_folder=None, profiles=None, options={}, build=None, remote=None):
+        build_folder = build_folder or self._build_folder
+        run_build("install", [self._path], remote=remote, profiles=profiles, options=options,
+                  build=build, cwd=build_folder)
 
     def build(self, src_folder=None, build_folder=None, pkg_folder=None):
-        build_folder = build_folder or self._default_build_folder()
-        src_folder = src_folder or self._default_src_folder()
-        pkg_folder = pkg_folder or self._default_pkg_folder()
-        run(["build", self._path, "--source-folder="+src_folder, "--package-folder="+pkg_folder],
+        src_folder = src_folder or self._src_folder
+        build_folder = build_folder or self._build_folder
+        pkg_folder = pkg_folder or self._pkg_folder
+        run(["build", self._path,
+             "--source-folder=" + src_folder, "--package-folder=" + pkg_folder],
             cwd=build_folder)
 
     def package(self, src_folder=None, build_folder=None, pkg_folder=None):
-        build_folder = build_folder or self._default_build_folder()
-        src_folder = src_folder or self._default_src_folder()
-        pkg_folder = pkg_folder or self._default_pkg_folder()
-        run(["package", self._path, "--source-folder="+src_folder, "--package-folder="+pkg_folder],
+        src_folder = src_folder or self._src_folder
+        build_folder = build_folder or self._build_folder
+        pkg_folder = pkg_folder or self._pkg_folder
+        run(["package", self._path,
+             "--source-folder=" + src_folder, "--package-folder=" + pkg_folder],
             cwd=build_folder)
+
+    def local_create(self, profiles=None, build=None, remote=None, options={},
+                     src_folder=None, build_folder=None, pkg_folder=None):
+        self.install(build_folder=build_folder, profiles=profiles, build=build, remote=remote,
+                     options=options)
+        self.build(src_folder=src_folder, build_folder=build_folder, pkg_folder=pkg_folder)
+        self.package(src_folder=src_folder, build_folder=build_folder, pkg_folder=pkg_folder)
