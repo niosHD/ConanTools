@@ -21,13 +21,13 @@ class ConanImportTxtFile:
         if self._delete and os.path.exists(self._file_name):
             os.unlink(self._file_name)
 
-    def add_package(self, name, refstring):
+    def add_package_string(self, name, refstring):
         self._package_ids[name] = refstring
 
-    def add_pid(self, pid, user=None, channel=None):
-        self._package_ids[pid.name] = pid.package_id(user=user, channel=channel)
+    def add_package(self, ref):
+        self._package_ids[ref.name] = str(ref)
 
-    def install(self, remote=None, profiles=None, build=None, cwd=None):
+    def install(self, remote=None, profiles=None, options={}, build=None, cwd=None):
         # write a conanfile in txt format with the package ids the imports
         config = configparser.ConfigParser(allow_no_value=True)
         config["requires"] = {x: None for x in self._package_ids.values()}
@@ -38,7 +38,7 @@ class ConanImportTxtFile:
             config.write(configfile)
 
         Conan.run_build("install", [self._file_name],
-                        remote=remote, profiles=profiles, build=build, cwd=cwd)
+                        remote=remote, profiles=profiles, options=options, build=build, cwd=cwd)
 
 
 def extend_profile(inpath, outpath, build_requires):

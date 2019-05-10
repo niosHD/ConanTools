@@ -1,5 +1,10 @@
 Helpers and tools that make working with `conan <https://conan.io>`_  (e.g., scripting) more convenient.
 
+The classes in this package provide an API for (a subset) of the conan features based on wrapping
+the conan command line tool. We opted for this approach because the internal conan API, as opposed
+to the command line tool, is `not stable at the moment
+<https://github.com/conan-io/conan/issues/3720>`_.
+
 Building the Sphinx Documentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

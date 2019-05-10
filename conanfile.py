@@ -3,6 +3,7 @@ import os
 
 # Import packages to make them usable via conan's `python_requires`.
 from ConanTools import Conan, Git, Repack, Version
+from ConanTools import *
 
 
 class ConanToolsRecipe(ConanFile):
