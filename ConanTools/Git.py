@@ -1,5 +1,5 @@
 from subprocess import run, PIPE, DEVNULL
-from typing import Optional
+from typing import List, Optional
 
 
 def revision(cwd: Optional[str] = None) -> Optional[str]:
@@ -10,19 +10,28 @@ def revision(cwd: Optional[str] = None) -> Optional[str]:
     return None
 
 
-def branch(cwd: Optional[str] = None) -> Optional[str]:
-    current_sha = revision(cwd=cwd)
-    # Get a list of all refs and their SHAs.
+def branches(rev: Optional[str] = None, cwd: Optional[str] = None) -> List[str]:
+    current_sha = rev or revision(cwd=cwd)
+    # Get a list of all heads and their SHAs.
     refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads"],
                stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
                check=True).stdout.strip()
+    # Fallback to remote refs if no heads exist.
     if refs == "":
+        refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname:lstrip=3)",
+                    "refs/remotes"],
+                   stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
+                   check=True).stdout.strip()
+    if refs == []:
         return None
     refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
-    # Return the first ref where the revisions match.
-    for sha, name in refs:
-        if sha == current_sha:
-            return name
+    return [name for sha, name in refs if sha == current_sha]
+
+
+def branch(cwd: Optional[str] = None) -> Optional[str]:
+    res = branches(cwd=cwd)
+    if res:
+        return res[0]
     return None
 
 
