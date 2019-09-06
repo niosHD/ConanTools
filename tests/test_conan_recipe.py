@@ -140,6 +140,27 @@ def test_recipe_install(mock_run):
             "--build outdated") == output.getvalue().strip()
 
 
+def test_recipe_source(mock_run):
+    # Test call when install fails.
+    recipe = Conan.Recipe("/foobar.py")
+    mock_run.returncode = 1
+    output = io.StringIO()
+    with redirect_stdout(output):
+        with pytest.raises(ValueError):
+            recipe.source(src_folder="/src", build_folder="/build")
+    assert ("[/build] $ conan source /foobar.py "
+            "--source-folder=/src") == output.getvalue().strip()
+
+    # Test call when source succeeds.
+    recipe = Conan.Recipe("foobar.py", cwd="/tmp")
+    mock_run.returncode = 0
+    output = io.StringIO()
+    with redirect_stdout(output):
+        recipe.source(src_folder="src")
+    assert ("[/tmp/_build] $ conan source /tmp/foobar.py "
+            "--source-folder=src") == output.getvalue().strip()
+
+
 def test_recipe_build(mock_run):
     # Test call when build fails.
     recipe = Conan.Recipe("/foobar.py")
@@ -180,3 +201,43 @@ def test_recipe_package(mock_run):
         recipe.package()
     assert ("[/tmp/_build] $ conan package /tmp/foobar.py --source-folder=/tmp "
             "--package-folder=/tmp/_install") == output.getvalue().strip()
+
+
+def test_recipe_export_pkg(mock_run, mock_inspect):
+    # Test call when export_pkg fails.
+    recipe = Conan.Recipe("/foobar.py")
+    mock_run.returncode = 1
+    output = io.StringIO()
+    with redirect_stdout(output):
+        with pytest.raises(ValueError):
+            recipe.export_pkg("bar", "testing", profiles=['a.p'], pkg_folder="/tmp/pkg", cwd="/ab")
+    assert ("[/ab] $ conan export-pkg /foobar.py ConanTools/0.1.1-post7+ga21edb7f08@bar/testing "
+            "--package-folder=/tmp/pkg --profile a.p") == output.getvalue().strip()
+
+    # Test call when export_pkg succeeds.
+    recipe = Conan.Recipe("foobar.py", cwd="/tmp")
+    mock_run.returncode = 0
+    output = io.StringIO()
+    with redirect_stdout(output):
+        recipe.export_pkg("bar", "testing", version="5.6.8", options={"key": True},
+                          pkg_folder="/tmp/pkg", cwd="/tmp/_build")
+    assert ("[/tmp/_build] $ conan export-pkg /tmp/foobar.py ConanTools/5.6.8@bar/testing "
+            "--package-folder=/tmp/pkg -o key=True") in output.getvalue()
+
+
+def test_recipe_create_local(mock_run, mock_inspect):
+    # Test call when export_pkg fails.
+    recipe = Conan.Recipe("/foobar.py", external_source=True)
+    mock_run.returncode = 0
+    output = io.StringIO()
+    with redirect_stdout(output):
+        recipe.create_local("user", "channel")
+    commands = output.getvalue().strip().splitlines()
+    assert "[/_build] $ conan install /foobar.py --build outdated" == commands[0]
+    assert "[/_build] $ conan source /foobar.py --source-folder=/_source" == commands[1]
+    assert ("[/_build] $ conan build /foobar.py --source-folder=/_source "
+            "--package-folder=/_install") == commands[2]
+    assert ("[/_build] $ conan package /foobar.py --source-folder=/_source "
+            "--package-folder=/_install") == commands[3]
+    assert ("$ conan export-pkg /foobar.py ConanTools/0.1.1-post7+ga21edb7f08@user/channel "
+            "--package-folder=/_install") in commands[4]
