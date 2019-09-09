@@ -1,4 +1,5 @@
 import configparser
+import glob
 import tempfile
 import os
 import ConanTools.Conan as Conan
@@ -39,6 +40,13 @@ class ConanImportTxtFile:
 
         Conan.run_build("install", [self._file_name],
                         remote=remote, profiles=profiles, options=options, build=build, cwd=cwd)
+
+        # remove conan packaging metadata files
+        cwd = os.path.abspath(cwd if cwd is not None else os.getcwd())
+        files = glob.glob(os.path.join(cwd, "conan*"))
+        files += glob.glob(os.path.join(cwd, "graph_info.json"))
+        for f in files:
+            os.remove(f)
 
 
 def extend_profile(inpath, outpath, build_requires):
