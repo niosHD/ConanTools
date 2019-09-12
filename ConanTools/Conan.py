@@ -1,24 +1,51 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess as sp
+import sys
 import tempfile
-from typing import Optional
+from typing import Dict, List, Optional, Union
 
 import ConanTools
 import ConanTools.Hack as Hack
 
-CONAN_PROGRAM = os.environ.get("CONAN_PROGRAM", "conan")
+CONAN_CMD = os.environ.get("CT_CONAN_CMD", "conan")
 
 
-def run(args, cwd=None, stdout=None, stderr=None, ignore_returncode=False,
-        conan_program=CONAN_PROGRAM):
-    args = [conan_program] + args
-    return ConanTools.run(args, cwd=cwd, stdout=stdout, stderr=stderr,
-                          ignore_returncode=ignore_returncode)
+def cmd_to_string(cmd: List[str]) -> str:
+    return " ".join([shlex.quote(x) for x in cmd])
 
 
-def _format_arg_list(values, argument):
+# TODO use the check argument of sp.run (requires larger test updates)
+def run(args: List[str], cwd: Optional[str] = None, stdout: Optional[int] = None,
+        stderr: Optional[int] = None, check: bool = True, conan_cmd: str = CONAN_CMD):
+    cmd = [conan_cmd] + args
+    cmd_str = cmd_to_string(cmd)
+
+    # ensure that the current working directory exists
+    cwd = os.path.abspath(cwd if cwd is not None else os.getcwd())
+    os.makedirs(cwd, exist_ok=True)
+
+    # execute the actual command
+    print("[{}] $ {}".format(cwd, cmd_str))
+    sys.stdout.flush()
+    result = sp.run(cmd, stdout=stdout, stderr=stderr, cwd=cwd)
+    if stdout == sp.PIPE:
+        result.stdout = result.stdout.decode().strip()
+    if stderr == sp.PIPE:
+        result.stderr = result.stderr.decode().strip()
+    if check and result.returncode != 0:
+        if stdout == sp.PIPE:
+            print(result.stdout, file=sys.stdout)
+        if stderr == sp.PIPE:
+            print(result.stderr, file=sys.stderr)
+        raise ValueError(
+            "Executing command \"{}\" failed! (returncode={})".format(cmd_str, result.returncode))
+    return result
+
+
+def fmt_arg_list(values: Union[List[str], str], argument: str):
     args = []
     if not isinstance(values, list):
         values = [values]
@@ -29,16 +56,17 @@ def _format_arg_list(values, argument):
     return args
 
 
-def run_build(cmd, args, remote, profiles, build, options, cwd):
+def fmt_build_args(cmd: str, args: List[str], remote: Optional[str], profiles: Optional[List[str]],
+                   build: Optional[List[str]], options: Dict[str, str]) -> List[str]:
     if profiles is None:
         profiles = Hack.get_cl_profiles()
     if build is None:
         build = Hack.get_cl_build_flags() or "outdated"
-    profile_args = _format_arg_list(profiles, "--profile")
-    build_args = _format_arg_list(build, "--build")
-    remote_args = _format_arg_list(remote or [], "--remote")
-    option_args = _format_arg_list(["{}={}".format(k, v) for k, v in options.items()] or [], "-o")
-    run([cmd] + args + profile_args + build_args + remote_args + option_args, cwd=cwd)
+    profile_args = fmt_arg_list(profiles, "--profile")
+    build_args = fmt_arg_list(build, "--build")
+    remote_args = fmt_arg_list(remote or [], "--remote")
+    option_args = fmt_arg_list(["{}={}".format(k, v) for k, v in options.items()], "-o")
+    return [cmd] + args + profile_args + build_args + remote_args + option_args
 
 
 def get_recipe_field(recipe_path, field_name, cwd=None):
@@ -89,25 +117,26 @@ class Reference():
 
     def in_local_cache(self):
         # check if the recipe is known locally
-        result = run(["search", str(self)], ignore_returncode=True)
+        result = run(["search", str(self)], check=False)
         if result.returncode == 0:
             return True
         return False
 
     def in_remote(self, remote):
         # check if the recipe is known on the remote
-        result = run(["search", str(self), "--remote", remote], ignore_returncode=True)
+        result = run(["search", str(self), "--remote", remote], check=False)
         if result.returncode == 0:
             return True
         return False
 
     def download_recipe(self, remote=None):
-        remote_args = _format_arg_list(remote or [], "--remote")
+        remote_args = fmt_arg_list(remote or [], "--remote")
         run(["download", str(self), "--recipe"] + remote_args)
 
     def install(self, remote=None, profiles=None, build=None, options={}, cwd=None):
-        run_build("install", [str(self)], remote=remote, profiles=profiles, options=options,
-                  build=build, cwd=cwd)
+        args = fmt_build_args("install", [str(self)], remote=remote, profiles=profiles,
+                              options=options, build=build)
+        run(args, cwd=cwd)
 
     def set_remote(self, remote):
         run(["remote", "add_ref", str(self), remote])
@@ -242,7 +271,7 @@ class Recipe():
             try:
                 tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
                 tmpfile.close()
-                sp.check_call([CONAN_PROGRAM, "inspect", self.path, "--json", tmpfile.name],
+                sp.check_call([CONAN_CMD, "inspect", self.path, "--json", tmpfile.name],
                               stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
                 with open(tmpfile.name) as f:
                     self._recipe_field_cache = json.load(f)
@@ -264,8 +293,9 @@ class Recipe():
     def create(self, user, channel, name=None, version=None, remote=None,
                profiles=None, options={}, build=None, cwd=None):
         ref = self.reference(name=name, version=version, user=user, channel=channel)
-        run_build("create", [self.path, str(ref)],
-                  remote=remote, profiles=profiles, options=options, build=build, cwd=cwd)
+        args = fmt_build_args("create", [self.path, str(ref)], remote=remote, profiles=profiles,
+                              options=options, build=build)
+        run(args, cwd=cwd)
         return ref
 
     def create_local(self, user, channel, name=None, version=None, remote=None,
@@ -286,38 +316,40 @@ class Recipe():
                 remote=None):
         layout = layout or self._layout
         build_folder = build_folder or layout.build_folder(self)
-        run_build("install", [self.path], remote=remote, profiles=profiles, options=options,
-                  build=build, cwd=build_folder)
+        args = fmt_build_args("install", [self.path], remote=remote, profiles=profiles,
+                              options=options, build=build)
+        run(args, cwd=build_folder)
 
     def source(self, layout=None, src_folder=None, build_folder=None):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
         build_folder = build_folder or layout.build_folder(self)
-        run(["source", self.path, "--source-folder=" + src_folder], cwd=build_folder)
+        args = ["source", self.path, "--source-folder=" + src_folder]
+        run(args, cwd=build_folder)
 
     def build(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
         build_folder = build_folder or layout.build_folder(self)
         pkg_folder = pkg_folder or layout.pkg_folder(self)
-        assert src_folder is not None
-        run(["build", self.path,
-             "--source-folder=" + src_folder, "--package-folder=" + pkg_folder],
-            cwd=build_folder)
+        args = ["build", self.path, "--source-folder=" + src_folder,
+                "--package-folder=" + pkg_folder]
+        run(args, cwd=build_folder)
 
     def package(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
         build_folder = build_folder or layout.build_folder(self)
         pkg_folder = pkg_folder or layout.pkg_folder(self)
-        run(["package", self.path,
-             "--source-folder=" + src_folder, "--package-folder=" + pkg_folder],
-            cwd=build_folder)
+        args = ["package", self.path, "--source-folder=" + src_folder,
+                "--package-folder=" + pkg_folder]
+        run(args, cwd=build_folder)
 
     def export_pkg(self, user, channel, name=None, version=None,
                    profiles=None, options={}, layout=None, pkg_folder=None, cwd=None):
         layout = layout or self._layout
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         ref = self.reference(name=name, version=version, user=user, channel=channel)
-        run_build("export-pkg", [self.path, str(ref), "--package-folder=" + pkg_folder],
-                  remote=None, profiles=profiles, options=options, build=[], cwd=cwd)
+        args = fmt_build_args("export-pkg", [self.path, str(ref), "--package-folder=" + pkg_folder],
+                              remote=None, profiles=profiles, options=options, build=[])
+        run(args, cwd=cwd)

@@ -38,8 +38,9 @@ class ConanImportTxtFile:
         with open(self._file_name, 'w') as configfile:
             config.write(configfile)
 
-        Conan.run_build("install", [self._file_name],
-                        remote=remote, profiles=profiles, options=options, build=build, cwd=cwd)
+        args = Conan.fmt_build_args("install", [self._file_name], remote=remote, profiles=profiles,
+                                    options=options, build=build)
+        Conan.run(args, cwd=cwd)
 
         # remove conan packaging metadata files
         cwd = os.path.abspath(cwd if cwd is not None else os.getcwd())
