@@ -93,11 +93,21 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
                build: Optional[List[str]] = None, pkg_folder: Optional[str] = None):
     """Imports the package content, after building it if necessary, into the pkg_folder.
     """
+    reference = recipe.reference(user=user, channel=channel, name=name, version=version)
+
+    # qualify the options with the package name
+    full_opt = {}
+    for k, v in options.items():
+        if ":" in k:
+            full_opt[k] = v
+        else:
+            full_opt["{}:{}".format(reference.name, k)] = v
+
     # Try to import an already existing package but without building it.
     importFile = ConanTools.Repack.ConanImportTxtFile()
-    importFile.add_package(recipe.reference(user=user, channel=channel, name=name, version=version))
+    importFile.add_package(reference)
     try:
-        importFile.install(remote=remote, profiles=profiles, options=options, build=[],
+        importFile.install(remote=remote, profiles=profiles, options=full_opt, build=[],
                            cwd=pkg_folder)
         return
     except ValueError:
@@ -105,5 +115,5 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
 
     # Build the package using the local or cache-based workflow and then import the content.
     create(recipe=recipe, user=user, channel=channel, name=name, version=version, remote=remote,
-           profiles=profiles, options=options, build=build)
-    importFile.install(remote=remote, profiles=profiles, options=options, build=[], cwd=pkg_folder)
+           profiles=profiles, options=full_opt, build=build)
+    importFile.install(remote=remote, profiles=profiles, options=full_opt, build=[], cwd=pkg_folder)

@@ -122,39 +122,61 @@ class Reference():
 
 
 class PkgLayout():
-    def src_folder(self, recipe):
+    def src_folder(self, recipe: 'Recipe'):
         raise NotImplementedError
 
-    def build_folder(self, recipe):
+    def build_folder(self, recipe: 'Recipe'):
         raise NotImplementedError
 
-    def pkg_folder(self, recipe):
+    def pkg_folder(self, recipe: 'Recipe'):
         raise NotImplementedError
 
 
 class RelativePkgLayout(PkgLayout):
-    def __init__(self, offset=".", src_dir="_source", build_dir="_build",
-                 pkg_dir="_install"):
+    """Layout class that permits various relative package layouts.
+
+    The default mode (i.e., no ``root`` specified) is to use the directory of the recipe as layout
+    root. Subsequently, subdirectories relative to the recipe are used for all operations. The
+    actual name of the subdirectories can be customized and an additional ``offset`` parameter can
+    be used to further move the root relative to the recipe.
+
+    Alternatively, when an explicit ``root`` has been specified, directories relative to this root
+    are used. By default, the package name is used as ``offset`` to permit reusing the same layout
+    instance accross multiple recipes.
+    """
+    def __init__(self, root: str = None, offset: str = None, src_dir: str = "_source",
+                 build_dir: str = "_build", pkg_dir: str = "_install"):
+        self._root = root
         self._offset = offset
         self._src_dir = src_dir
         self._build_dir = build_dir
         self._pkg_dir = pkg_dir
 
-    def _root(self, recipe):
-        return os.path.normpath(os.path.join(os.path.dirname(recipe.path),
-                                             self._offset))
+    def root(self, recipe: 'Recipe'):
+        if self._root is None:
+            # No root has been defined, use the recipe path directory as root and apply the offset
+            # if available.
+            root = os.path.dirname(recipe.path)
+            offset = self._offset or "."
+        else:
+            # Use the specified root and offset if available. Otherwise, fallback to the package
+            # name as offset.
+            root = self._root
+            offset = self._offset or recipe.get_field("name")
 
-    def src_folder(self, recipe):
+        return os.path.normpath(os.path.join(root, offset))
+
+    def src_folder(self, recipe: 'Recipe'):
         if recipe.external_source:
-            return os.path.join(self._root(recipe), self._src_dir)
+            return os.path.join(self.root(recipe), self._src_dir)
         else:
             return os.path.dirname(recipe.path)
 
-    def build_folder(self, recipe):
-        return os.path.join(self._root(recipe), self._build_dir)
+    def build_folder(self, recipe: 'Recipe'):
+        return os.path.join(self.root(recipe), self._build_dir)
 
-    def pkg_folder(self, recipe):
-        return os.path.join(self._root(recipe), self._pkg_dir)
+    def pkg_folder(self, recipe: 'Recipe'):
+        return os.path.join(self.root(recipe), self._pkg_dir)
 
 
 class TempPkgLayout(PkgLayout):
@@ -169,7 +191,7 @@ class TempPkgLayout(PkgLayout):
         for directory in self._directories.values():
             shutil.rmtree(directory)
 
-    def _root(self, recipe):
+    def _root(self, recipe: 'Recipe'):
         result = self._directories.get(recipe, False)
         if result:
             return result
@@ -177,16 +199,16 @@ class TempPkgLayout(PkgLayout):
         self._directories[recipe] = result
         return result
 
-    def src_folder(self, recipe):
+    def src_folder(self, recipe: 'Recipe'):
         if recipe.external_source:
             return os.path.join(self._root(recipe), self._src_dir)
         else:
             return os.path.dirname(recipe.path)
 
-    def build_folder(self, recipe):
+    def build_folder(self, recipe: 'Recipe'):
         return os.path.join(self._root(recipe), self._build_dir)
 
-    def pkg_folder(self, recipe):
+    def pkg_folder(self, recipe: 'Recipe'):
         return os.path.join(self._root(recipe), self._pkg_dir)
 
 
