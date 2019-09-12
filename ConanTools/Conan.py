@@ -45,6 +45,23 @@ def run(args: List[str], cwd: Optional[str] = None, stdout: Optional[int] = None
     return result
 
 
+def write_conan_sh_file(filedir: str, basename: str, args: List[str],
+                        cmd_cwd: Optional[str], conan_cmd: str = CONAN_CMD):
+    os.makedirs(filedir, exist_ok=True)
+    filepath = os.path.join(filedir, "ct_{}.sh".format(basename))
+    cmd_cwd = os.path.abspath(cmd_cwd if cmd_cwd is not None else os.getcwd())
+    with open(filepath, 'w') as f:
+        f.write('#!/bin/sh\n')
+        f.write(cmd_to_string(['cd', cmd_cwd]) + "\n")
+        f.write(cmd_to_string([conan_cmd] + args) + "\n")
+
+    # Ensure that the sh file is executable.
+    # Source: https://stackoverflow.com/a/30463972
+    mode = os.stat(filepath).st_mode
+    mode |= (mode & 0o444) >> 2    # copy R bits to X
+    os.chmod(filepath, mode)
+
+
 def fmt_arg_list(values: Union[List[str], str], argument: str):
     args = []
     if not isinstance(values, list):
@@ -151,13 +168,16 @@ class Reference():
 
 
 class PkgLayout():
-    def src_folder(self, recipe: 'Recipe'):
+    def root(self, recipe: 'Recipe') -> str:
         raise NotImplementedError
 
-    def build_folder(self, recipe: 'Recipe'):
+    def src_folder(self, recipe: 'Recipe') -> str:
         raise NotImplementedError
 
-    def pkg_folder(self, recipe: 'Recipe'):
+    def build_folder(self, recipe: 'Recipe') -> str:
+        raise NotImplementedError
+
+    def pkg_folder(self, recipe: 'Recipe') -> str:
         raise NotImplementedError
 
 
@@ -181,7 +201,7 @@ class RelativePkgLayout(PkgLayout):
         self._build_dir = build_dir
         self._pkg_dir = pkg_dir
 
-    def root(self, recipe: 'Recipe'):
+    def root(self, recipe: 'Recipe') -> str:
         if self._root is None:
             # No root has been defined, use the recipe path directory as root and apply the offset
             # if available.
@@ -195,16 +215,16 @@ class RelativePkgLayout(PkgLayout):
 
         return os.path.normpath(os.path.join(root, offset))
 
-    def src_folder(self, recipe: 'Recipe'):
+    def src_folder(self, recipe: 'Recipe') -> str:
         if recipe.external_source:
             return os.path.join(self.root(recipe), self._src_dir)
         else:
             return os.path.dirname(recipe.path)
 
-    def build_folder(self, recipe: 'Recipe'):
+    def build_folder(self, recipe: 'Recipe') -> str:
         return os.path.join(self.root(recipe), self._build_dir)
 
-    def pkg_folder(self, recipe: 'Recipe'):
+    def pkg_folder(self, recipe: 'Recipe') -> str:
         return os.path.join(self.root(recipe), self._pkg_dir)
 
 
@@ -220,7 +240,7 @@ class TempPkgLayout(PkgLayout):
         for directory in self._directories.values():
             shutil.rmtree(directory)
 
-    def _root(self, recipe: 'Recipe'):
+    def root(self, recipe: 'Recipe') -> str:
         result = self._directories.get(recipe, False)
         if result:
             return result
@@ -228,17 +248,17 @@ class TempPkgLayout(PkgLayout):
         self._directories[recipe] = result
         return result
 
-    def src_folder(self, recipe: 'Recipe'):
+    def src_folder(self, recipe: 'Recipe') -> str:
         if recipe.external_source:
-            return os.path.join(self._root(recipe), self._src_dir)
+            return os.path.join(self.root(recipe), self._src_dir)
         else:
             return os.path.dirname(recipe.path)
 
-    def build_folder(self, recipe: 'Recipe'):
-        return os.path.join(self._root(recipe), self._build_dir)
+    def build_folder(self, recipe: 'Recipe') -> str:
+        return os.path.join(self.root(recipe), self._build_dir)
 
-    def pkg_folder(self, recipe: 'Recipe'):
-        return os.path.join(self._root(recipe), self._pkg_dir)
+    def pkg_folder(self, recipe: 'Recipe') -> str:
+        return os.path.join(self.root(recipe), self._pkg_dir)
 
 
 class Recipe():
@@ -299,57 +319,71 @@ class Recipe():
         return ref
 
     def create_local(self, user, channel, name=None, version=None, remote=None,
-                     profiles=None, options={}, build=None,
-                     layout=None, src_folder=None, build_folder=None, pkg_folder=None):
+                     profiles=None, options={}, build=None, layout=None,
+                     src_folder=None, build_folder=None, pkg_folder=None, add_script=False):
         self.install(layout=layout, build_folder=build_folder, profiles=profiles, options=options,
-                     build=build, remote=remote)
+                     build=build, remote=remote, add_script=add_script)
         if self.external_source:
-            self.source(layout=layout, src_folder=src_folder, build_folder=build_folder)
+            self.source(layout=layout, src_folder=src_folder, build_folder=build_folder,
+                        add_script=add_script)
         self.build(layout=layout, src_folder=src_folder, build_folder=build_folder,
-                   pkg_folder=pkg_folder)
+                   pkg_folder=pkg_folder, add_script=add_script)
         self.package(layout=layout, src_folder=src_folder, build_folder=build_folder,
-                     pkg_folder=pkg_folder)
-        self.export_pkg(user=user, channel=channel, name=name, version=version,
-                        profiles=profiles, options=options, layout=layout, pkg_folder=pkg_folder)
+                     pkg_folder=pkg_folder, add_script=add_script)
+        self.export_pkg(user=user, channel=channel, name=name, version=version, profiles=profiles,
+                        options=options, layout=layout, pkg_folder=pkg_folder,
+                        add_script=add_script)
 
     def install(self, layout=None, build_folder=None, profiles=None, options={}, build=None,
-                remote=None):
+                remote=None, add_script=False):
         layout = layout or self._layout
         build_folder = build_folder or layout.build_folder(self)
         args = fmt_build_args("install", [self.path], remote=remote, profiles=profiles,
                               options=options, build=build)
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'install', args, build_folder)
         run(args, cwd=build_folder)
 
-    def source(self, layout=None, src_folder=None, build_folder=None):
+    def source(self, layout=None, src_folder=None, build_folder=None, add_script=False):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
         build_folder = build_folder or layout.build_folder(self)
         args = ["source", self.path, "--source-folder=" + src_folder]
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'source', args, build_folder)
         run(args, cwd=build_folder)
 
-    def build(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None):
+    def build(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None,
+              add_script=False):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
         build_folder = build_folder or layout.build_folder(self)
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         args = ["build", self.path, "--source-folder=" + src_folder,
                 "--package-folder=" + pkg_folder]
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'build', args, build_folder)
         run(args, cwd=build_folder)
 
-    def package(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None):
+    def package(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None,
+                add_script=False):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
         build_folder = build_folder or layout.build_folder(self)
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         args = ["package", self.path, "--source-folder=" + src_folder,
                 "--package-folder=" + pkg_folder]
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'package', args, build_folder)
         run(args, cwd=build_folder)
 
-    def export_pkg(self, user, channel, name=None, version=None,
-                   profiles=None, options={}, layout=None, pkg_folder=None, cwd=None):
+    def export_pkg(self, user, channel, name=None, version=None, profiles=None, options={},
+                   layout=None, pkg_folder=None, cwd=None, add_script=False):
         layout = layout or self._layout
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         ref = self.reference(name=name, version=version, user=user, channel=channel)
         args = fmt_build_args("export-pkg", [self.path, str(ref), "--package-folder=" + pkg_folder],
                               remote=None, profiles=profiles, options=options, build=[])
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'export-pkg', args, cwd)
         run(args, cwd=cwd)

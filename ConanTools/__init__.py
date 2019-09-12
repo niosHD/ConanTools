@@ -2,6 +2,7 @@ import os
 import string
 from typing import Dict, List, Optional
 
+import ConanTools.Conan
 import ConanTools.Repack
 
 
@@ -56,7 +57,8 @@ def create(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[str] 
     """
     if env_flag("CT_CREATE_LOCAL"):
         recipe.create_local(user=user, channel=channel, name=name, version=version, remote=remote,
-                            profiles=profiles, options=options, build=build, layout=layout)
+                            profiles=profiles, options=options, build=build, layout=layout,
+                            add_script=True)
     else:
         recipe.create(user=user, channel=channel, name=name, version=version, remote=remote,
                       profiles=profiles, options=options, build=build, cwd=cwd)
@@ -102,3 +104,15 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
     create(recipe=recipe, user=user, channel=channel, name=name, version=version, remote=remote,
            profiles=profiles, options=full_opt, build=build)
     importFile.install(remote=remote, profiles=profiles, options=full_opt, build=[], cwd=pkg_folder)
+
+
+def write_helper_scripts(filedir: str, recipe_path: str, src_folder: str = None,
+                         build_folder: str = None, pkg_folder: str = None):
+    """Generate helper shell scripts for executing the build and package stage.
+    """
+    ConanTools.Conan.write_conan_sh_file(filedir, "build",
+                                         ["build", recipe_path, "--source-folder=" + src_folder,
+                                          "--package-folder=" + pkg_folder], build_folder)
+    ConanTools.Conan.write_conan_sh_file(filedir, "package",
+                                         ["package", recipe_path, "--package-folder=" + pkg_folder],
+                                         build_folder)
