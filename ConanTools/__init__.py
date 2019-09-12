@@ -113,6 +113,16 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
     except ValueError:
         pass
 
+    if env_flag("CT_DEVELOP"):
+        # Build missing packages with the local flow but skip real package creation. Install
+        # directly into the pkg_folder instead.
+        recipe.install(profiles=profiles, options=full_opt, build=build, remote=remote)
+        if recipe.external_source:
+            recipe.source()
+        recipe.build(pkg_folder=pkg_folder)
+        recipe.package(pkg_folder=pkg_folder)
+        return
+
     # Build the package using the local or cache-based workflow and then import the content.
     create(recipe=recipe, user=user, channel=channel, name=name, version=version, remote=remote,
            profiles=profiles, options=full_opt, build=build)
