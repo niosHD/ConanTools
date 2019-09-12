@@ -69,6 +69,11 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
                profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
                build: Optional[List[str]] = None, pkg_folder: Optional[str] = None):
     """Imports the package content, after building it if necessary, into the pkg_folder.
+
+    By default, subpackages are built using the local flow and directly use the specified
+    pkg_folder. This mode is similar to, for example, a superbuild using cmake. Alternatively,
+    if the ``CT_ENABLE_SUBPACKAGES`` environment variable is defined, each subpackage is
+    created individually and gets subsequently imported into the pkg_folder.
     """
     reference = recipe.reference(user=user, channel=channel, name=name, version=version)
 
@@ -80,6 +85,17 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
         else:
             full_opt["{}:{}".format(reference.name, k)] = v
 
+    if not env_flag("CT_ENABLE_SUBPACKAGES"):
+        # Build package with the local flow but skip real package creation. Install
+        # directly into the pkg_folder instead.
+        recipe.install(profiles=profiles, options=full_opt, build=build, remote=remote,
+                       add_script=True)
+        if recipe.external_source:
+            recipe.source(add_script=True)
+        recipe.build(pkg_folder=pkg_folder, add_script=True)
+        recipe.package(pkg_folder=pkg_folder, add_script=True)
+        return
+
     # Try to import an already existing package but without building it.
     importFile = ConanTools.Repack.ConanImportTxtFile()
     importFile.add_package(reference)
@@ -89,16 +105,6 @@ def pkg_import(recipe: 'Conan.Recipe', user: str, channel: str, name: Optional[s
         return
     except ValueError:
         pass
-
-    if env_flag("CT_DEVELOP"):
-        # Build missing packages with the local flow but skip real package creation. Install
-        # directly into the pkg_folder instead.
-        recipe.install(profiles=profiles, options=full_opt, build=build, remote=remote)
-        if recipe.external_source:
-            recipe.source()
-        recipe.build(pkg_folder=pkg_folder)
-        recipe.package(pkg_folder=pkg_folder)
-        return
 
     # Build the package using the local or cache-based workflow and then import the content.
     create(recipe=recipe, user=user, channel=channel, name=name, version=version, remote=remote,
