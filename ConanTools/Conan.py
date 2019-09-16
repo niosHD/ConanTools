@@ -1,3 +1,4 @@
+import configparser
 import json
 import os
 import shlex
@@ -50,6 +51,7 @@ def write_conan_sh_file(filedir: str, basename: str, args: List[str],
     os.makedirs(filedir, exist_ok=True)
     filepath = os.path.join(filedir, "ct_{}.sh".format(basename))
     cmd_cwd = os.path.abspath(cmd_cwd if cmd_cwd is not None else os.getcwd())
+    # FIXME capture the current environment and export the same values in the script
     with open(filepath, 'w') as f:
         f.write('#!/bin/sh\n')
         f.write(cmd_to_string(['cd', cmd_cwd]) + "\n")
@@ -387,3 +389,67 @@ class Recipe():
         if add_script:
             write_conan_sh_file(layout.root(self), 'export-pkg', args, cwd)
         run(args, cwd=cwd)
+
+
+class Workspace():
+    def __init__(self, recipes: List[Recipe]):
+        self._recipes = recipes
+
+    def references(self, user: str, channel: str):
+        return [recipe.reference(user=user, channel=channel) for recipe in self._recipes]
+
+    def install(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
+                profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
+                build: Optional[List[str]] = None, remote: Optional[str] = None,
+                add_script: bool = False):
+        config = configparser.ConfigParser(allow_no_value=True)
+        for recipe in self._recipes:
+                ref = recipe.reference(user, channel)
+                layout = recipe._layout  # FIXME add accessor
+                config["{}:build_folder".format(ref)] = {layout.build_folder(recipe): None}
+                config["{}:source_folder".format(ref)] = {layout.src_folder(recipe): None}
+
+        ws_build_folder = ws_build_folder or os.getcwd()
+        os.makedirs(ws_build_folder, exist_ok=True)
+        layout_file = os.path.join(ws_build_folder, "layout.txt")
+        with open(layout_file, 'w') as f:
+            config.write(f)
+
+        ws_file = os.path.join(ws_build_folder, "ws.yml")
+        with open(ws_file, 'w') as f:
+            f.write("editables:\n")
+            for recipe in self._recipes:
+                f.write("    {}:\n".format(recipe.reference(user, channel)))
+                f.write("        path: {}\n".format(os.path.dirname(recipe.path)))
+            f.write("layout: layout.txt\n")
+            # f.write("workspace_generator: cmake\n")
+            f.write("root:\n")
+            for recipe in self._recipes:
+                f.write("  - {}\n".format(recipe.reference(user, channel)))
+
+        args = ["workspace"]
+        args += fmt_build_args("install", [ws_file], remote=remote, profiles=profiles,
+                               options=options, build=build)
+        if add_script:
+            write_conan_sh_file(ws_build_folder, 'ws-install', args, ws_build_folder)
+        run(args, cwd=ws_build_folder)
+
+    def source(self, add_script: bool = False):
+        for recipe in self._recipes:
+            if recipe.external_source:
+                recipe.source(add_script=add_script)
+
+    def create_local(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
+                     profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
+                     build: Optional[List[str]] = None, remote: Optional[str] = None,
+                     pkg_folder: Optional[str] = None, add_script: bool = False):
+        self.install(user, channel, ws_build_folder=ws_build_folder, profiles=profiles,
+                     options=options, build=build, remote=remote, add_script=add_script)
+        self.source(add_script=add_script)
+        # FIXME extract dependency information for correct build ordering
+        for recipe in self._recipes:
+            recipe.build(pkg_folder=pkg_folder, add_script=add_script)
+            recipe.package(pkg_folder=pkg_folder, add_script=add_script)
+            if pkg_folder is None:
+                recipe.export_pkg(user=user, channel=channel, profiles=profiles,
+                                  options=options, add_script=add_script)
