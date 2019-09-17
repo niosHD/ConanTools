@@ -12,11 +12,11 @@ jobs:
 
   - stage: deploy
     name: bintray
-    if: tag IS present
+    if: tag IS present OR branch =~ ^release/.+$
     script:
     - docker run --rm -ti -e BINTRAY_API_KEY -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash -c "pip3 install -e .;pip3 install conan;python3 ci.deploy_to_bintray.py"
 
   - name: pypi
-    if: tag IS present
+    if: tag IS present OR branch =~ ^release/.+$
     script:
     - docker run --rm -ti -e PYPI_PASSWORD -v "$TRAVIS_BUILD_DIR:/builds" -w "/builds" nioshd/ubuntu-python3dev:latest bash ci.deploy_to_pypi.sh
