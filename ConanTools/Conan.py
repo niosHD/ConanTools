@@ -46,14 +46,17 @@ def run(args: List[str], cwd: Optional[str] = None, stdout: Optional[int] = None
     return result
 
 
-def write_conan_sh_file(filedir: str, basename: str, args: List[str],
-                        cmd_cwd: Optional[str], conan_cmd: str = CONAN_CMD):
+def write_conan_sh_file(filedir: str, basename: str, args: List[str], cmd_cwd: Optional[str],
+                        env: Optional[dict] = None, conan_cmd: str = CONAN_CMD):
     os.makedirs(filedir, exist_ok=True)
     filepath = os.path.join(filedir, "ct_{}.sh".format(basename))
     cmd_cwd = os.path.abspath(cmd_cwd if cmd_cwd is not None else os.getcwd())
-    # FIXME capture the current environment and export the same values in the script
+    if env is None:
+        env = os.environ
     with open(filepath, 'w') as f:
         f.write('#!/bin/sh\n')
+        for k, v in env.items():
+            f.write(cmd_to_string(['export', '{}={}'.format(k, v)]) + "\n")
         f.write(cmd_to_string(['cd', cmd_cwd]) + "\n")
         f.write(cmd_to_string([conan_cmd] + args) + "\n")
 
