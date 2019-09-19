@@ -22,7 +22,7 @@ def branches(rev: Optional[str] = None, cwd: Optional[str] = None) -> List[str]:
                     "refs/remotes"],
                    stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
                    check=True).stdout.strip()
-    if refs == []:
+    if refs == "":
         return None
     refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
     return [name for sha, name in refs if sha == current_sha]
