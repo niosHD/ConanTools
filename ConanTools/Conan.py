@@ -445,14 +445,16 @@ class Workspace():
     def create_local(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
                      profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
                      build: Optional[List[str]] = None, remote: Optional[str] = None,
-                     pkg_folder: Optional[str] = None, add_script: bool = False):
+                     pkg_folder: Optional[str] = None, pkg_folder_override: Dict[Recipe, str] = {},
+                     add_script: bool = False):
         self.install(user, channel, ws_build_folder=ws_build_folder, profiles=profiles,
                      options=options, build=build, remote=remote, add_script=add_script)
         self.source(add_script=add_script)
         # FIXME extract dependency information for correct build ordering
         for recipe in self._recipes:
-            recipe.build(pkg_folder=pkg_folder, add_script=add_script)
-            recipe.package(pkg_folder=pkg_folder, add_script=add_script)
-            if pkg_folder is None:
+            recipe_pkg_folder = pkg_folder_override.get(recipe, pkg_folder)
+            recipe.build(pkg_folder=recipe_pkg_folder, add_script=add_script)
+            recipe.package(pkg_folder=recipe_pkg_folder, add_script=add_script)
+            if recipe_pkg_folder is None:
                 recipe.export_pkg(user=user, channel=channel, profiles=profiles,
                                   options=options, add_script=add_script)
