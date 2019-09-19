@@ -122,7 +122,8 @@ def ws_import(ws: Conan.Workspace, user: str, channel: str, name: Optional[str] 
               version: Optional[str] = None, remote: Optional[str] = None,
               profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
               build: Optional[List[str]] = None, pkg_folder: Optional[str] = None,
-              enable_subpackages: Optional[bool] = None, cwd=None):
+              enable_subpackages: Optional[bool] = None, cwd=None,
+              pkg_folder_override: Dict[Conan.Recipe, str] = {}):
     """Imports the workspace content, after building it if necessary, into the pkg_folder.
 
     By default, subpackages are built using the local flow and directly use the specified
@@ -138,7 +139,8 @@ def ws_import(ws: Conan.Workspace, user: str, channel: str, name: Optional[str] 
         # Build workspace with the local flow but skip real package creation. Install
         # directly into the pkg_folder instead.
         ws.create_local(user, channel, ws_build_folder=cwd, profiles=profiles, options=options,
-                        build=build, remote=remote, pkg_folder=pkg_folder, add_script=True)
+                        build=build, remote=remote, pkg_folder=pkg_folder,
+                        pkg_folder_override=pkg_folder_override, add_script=True)
         return
 
     assert False
