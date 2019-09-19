@@ -4,17 +4,13 @@ import ConanTools
 import ConanTools.Git
 import ConanTools.Conan as Conan
 
-# Setup the default configuration.
+# Setup the default configuration but permit to override the configuration
+# variables via the command line.
 BINTRAY_API_KEY = os.environ["BINTRAY_API_KEY"]  # has to be defined in environment
-BINTRAY_USER = "nioshd"
-CONAN_CHANNEL = "testing"
-if ConanTools.Git.tag():
-    CONAN_CHANNEL = "stable"
-
-# Permit to override the derived configuration variables via the command line.
-BINTRAY_USER = os.environ.get("BINTRAY_USER", BINTRAY_USER)
+BINTRAY_USER = os.environ.get("BINTRAY_USER", "nioshd")
 CONAN_USER = os.environ.get("CONAN_USER", BINTRAY_USER)
-CONAN_CHANNEL = os.environ.get("CONAN_CHANNEL", CONAN_CHANNEL)
+CONAN_CHANNEL = os.environ.get("CONAN_CHANNEL",
+                               "stable" if ConanTools.Git.tag() else "testing")
 CONAN_REMOTE_NAME = os.environ.get("CONAN_REMOTE_NAME", "bintray_{}".format(BINTRAY_USER))
 
 # Add the bintray remote and authenticate against it.

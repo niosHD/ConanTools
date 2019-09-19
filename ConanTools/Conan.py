@@ -1,22 +1,73 @@
+import configparser
 import json
 import os
+import shlex
+import shutil
 import subprocess as sp
-
+import sys
 import tempfile
+from typing import Dict, List, Optional, Union
+
 import ConanTools
 import ConanTools.Hack as Hack
 
-CONAN_PROGRAM = os.environ.get("CONAN_PROGRAM", "conan")
+CONAN_CMD = os.environ.get("CT_CONAN_CMD", "conan")
 
 
-def run(args, cwd=None, stdout=None, stderr=None, ignore_returncode=False,
-        conan_program=CONAN_PROGRAM):
-    args = [conan_program] + args
-    return ConanTools.run(args, cwd=cwd, stdout=stdout, stderr=stderr,
-                          ignore_returncode=ignore_returncode)
+def cmd_to_string(cmd: List[str]) -> str:
+    return " ".join([shlex.quote(x) for x in cmd])
 
 
-def _format_arg_list(values, argument):
+# TODO use the check argument of sp.run (requires larger test updates)
+def run(args: List[str], cwd: Optional[str] = None, stdout: Optional[int] = None,
+        stderr: Optional[int] = None, check: bool = True, conan_cmd: str = CONAN_CMD):
+    cmd = [conan_cmd] + args
+    cmd_str = cmd_to_string(cmd)
+
+    # ensure that the current working directory exists
+    cwd = os.path.abspath(cwd if cwd is not None else os.getcwd())
+    os.makedirs(cwd, exist_ok=True)
+
+    # execute the actual command
+    print("[{}] $ {}".format(cwd, cmd_str))
+    sys.stdout.flush()
+    result = sp.run(cmd, stdout=stdout, stderr=stderr, cwd=cwd)
+    if stdout == sp.PIPE:
+        result.stdout = result.stdout.decode().strip()
+    if stderr == sp.PIPE:
+        result.stderr = result.stderr.decode().strip()
+    if check and result.returncode != 0:
+        if stdout == sp.PIPE:
+            print(result.stdout, file=sys.stdout)
+        if stderr == sp.PIPE:
+            print(result.stderr, file=sys.stderr)
+        raise ValueError(
+            "Executing command \"{}\" failed! (returncode={})".format(cmd_str, result.returncode))
+    return result
+
+
+def write_conan_sh_file(filedir: str, basename: str, args: List[str], cmd_cwd: Optional[str],
+                        env: Optional[dict] = None, conan_cmd: str = CONAN_CMD):
+    os.makedirs(filedir, exist_ok=True)
+    filepath = os.path.join(filedir, "ct_{}.sh".format(basename))
+    cmd_cwd = os.path.abspath(cmd_cwd if cmd_cwd is not None else os.getcwd())
+    if env is None:
+        env = os.environ
+    with open(filepath, 'w') as f:
+        f.write('#!/bin/sh\n')
+        for k, v in env.items():
+            f.write(cmd_to_string(['export', '{}={}'.format(k, v)]) + "\n")
+        f.write(cmd_to_string(['cd', cmd_cwd]) + "\n")
+        f.write(cmd_to_string([conan_cmd] + args) + "\n")
+
+    # Ensure that the sh file is executable.
+    # Source: https://stackoverflow.com/a/30463972
+    mode = os.stat(filepath).st_mode
+    mode |= (mode & 0o444) >> 2    # copy R bits to X
+    os.chmod(filepath, mode)
+
+
+def fmt_arg_list(values: Union[List[str], str], argument: str):
     args = []
     if not isinstance(values, list):
         values = [values]
@@ -27,15 +78,17 @@ def _format_arg_list(values, argument):
     return args
 
 
-# FIXME empty lists in python are evaluated as False -> it is not possible
-#       to specify no build flag at the moment or to suppress the use of the Hack functions
-#       without specifying profile/build flags
-def run_build(cmd, args, remote, profiles, build, options, cwd):
-    profile_args = _format_arg_list(profiles or Hack.get_cl_profiles(), "--profile")
-    build_args = _format_arg_list(build or Hack.get_cl_build_flags() or "outdated", "--build")
-    remote_args = _format_arg_list(remote or [], "--remote")
-    option_args = _format_arg_list(["{}={}".format(k, v) for k, v in options.items()] or [], "-o")
-    run([cmd] + args + profile_args + build_args + remote_args + option_args, cwd=cwd)
+def fmt_build_args(cmd: str, args: List[str], remote: Optional[str], profiles: Optional[List[str]],
+                   build: Optional[List[str]], options: Dict[str, str]) -> List[str]:
+    if profiles is None:
+        profiles = Hack.get_cl_profiles()
+    if build is None:
+        build = Hack.get_cl_build_flags() or "outdated"
+    profile_args = fmt_arg_list(profiles, "--profile")
+    build_args = fmt_arg_list(build, "--build")
+    remote_args = fmt_arg_list(remote or [], "--remote")
+    option_args = fmt_arg_list(["{}={}".format(k, v) for k, v in options.items()], "-o")
+    return [cmd] + args + profile_args + build_args + remote_args + option_args
 
 
 def get_recipe_field(recipe_path, field_name, cwd=None):
@@ -86,25 +139,26 @@ class Reference():
 
     def in_local_cache(self):
         # check if the recipe is known locally
-        result = run(["search", str(self)], ignore_returncode=True)
+        result = run(["search", str(self)], check=False)
         if result.returncode == 0:
             return True
         return False
 
     def in_remote(self, remote):
         # check if the recipe is known on the remote
-        result = run(["search", str(self), "--remote", remote], ignore_returncode=True)
+        result = run(["search", str(self), "--remote", remote], check=False)
         if result.returncode == 0:
             return True
         return False
 
     def download_recipe(self, remote=None):
-        remote_args = _format_arg_list(remote or [], "--remote")
+        remote_args = fmt_arg_list(remote or [], "--remote")
         run(["download", str(self), "--recipe"] + remote_args)
 
     def install(self, remote=None, profiles=None, build=None, options={}, cwd=None):
-        run_build("install", [str(self)], remote=remote, profiles=profiles, options=options,
-                  build=build, cwd=cwd)
+        args = fmt_build_args("install", [str(self)], remote=remote, profiles=profiles,
+                              options=options, build=build)
+        run(args, cwd=cwd)
 
     def set_remote(self, remote):
         run(["remote", "add_ref", str(self), remote])
@@ -118,33 +172,131 @@ class Reference():
         run(["upload", str(self), "--remote", remote, "--all", "-c"])
 
 
+class PkgLayout():
+    def root(self, recipe: 'Recipe') -> str:
+        raise NotImplementedError
+
+    def src_folder(self, recipe: 'Recipe') -> str:
+        raise NotImplementedError
+
+    def build_folder(self, recipe: 'Recipe') -> str:
+        raise NotImplementedError
+
+    def pkg_folder(self, recipe: 'Recipe') -> str:
+        raise NotImplementedError
+
+
+class RelativePkgLayout(PkgLayout):
+    """Layout class that permits various relative package layouts.
+
+    The default mode (i.e., no ``root`` specified) is to use the directory of the recipe as layout
+    root. Subsequently, subdirectories relative to the recipe are used for all operations. The
+    actual name of the subdirectories can be customized and an additional ``offset`` parameter can
+    be used to further move the root relative to the recipe.
+
+    Alternatively, when an explicit ``root`` has been specified, directories relative to this root
+    are used. By default, the package name is used as ``offset`` to permit reusing the same layout
+    instance accross multiple recipes.
+    """
+    def __init__(self, root: str = None, offset: str = None, src_dir: str = "_source",
+                 build_dir: str = "_build", pkg_dir: str = "_install"):
+        self._root = root
+        self._offset = offset
+        self._src_dir = src_dir
+        self._build_dir = build_dir
+        self._pkg_dir = pkg_dir
+
+    def root(self, recipe: 'Recipe') -> str:
+        if self._root is None:
+            # No root has been defined, use the recipe path directory as root and apply the offset
+            # if available.
+            root = os.path.dirname(recipe.path)
+            offset = self._offset or "."
+        else:
+            # Use the specified root and offset if available. Otherwise, fallback to the package
+            # name as offset.
+            root = self._root
+            offset = self._offset or recipe.get_field("name")
+
+        return os.path.normpath(os.path.join(root, offset))
+
+    def src_folder(self, recipe: 'Recipe') -> str:
+        if recipe.external_source:
+            return os.path.join(self.root(recipe), self._src_dir)
+        else:
+            return os.path.dirname(recipe.path)
+
+    def build_folder(self, recipe: 'Recipe') -> str:
+        return os.path.join(self.root(recipe), self._build_dir)
+
+    def pkg_folder(self, recipe: 'Recipe') -> str:
+        return os.path.join(self.root(recipe), self._pkg_dir)
+
+
+class TempPkgLayout(PkgLayout):
+    def __init__(self, src_dir="_source", build_dir="_build",
+                 pkg_dir="_install"):
+        self._directories = {}
+        self._src_dir = src_dir
+        self._build_dir = build_dir
+        self._pkg_dir = pkg_dir
+
+    def __del__(self):
+        for directory in self._directories.values():
+            shutil.rmtree(directory)
+
+    def root(self, recipe: 'Recipe') -> str:
+        result = self._directories.get(recipe, False)
+        if result:
+            return result
+        result = tempfile.mkdtemp(recipe.get_field("name"))
+        self._directories[recipe] = result
+        return result
+
+    def src_folder(self, recipe: 'Recipe') -> str:
+        if recipe.external_source:
+            return os.path.join(self.root(recipe), self._src_dir)
+        else:
+            return os.path.dirname(recipe.path)
+
+    def build_folder(self, recipe: 'Recipe') -> str:
+        return os.path.join(self.root(recipe), self._build_dir)
+
+    def pkg_folder(self, recipe: 'Recipe') -> str:
+        return os.path.join(self.root(recipe), self._pkg_dir)
+
+
 class Recipe():
-    def __init__(self, path, cwd=None, src_folder=None, build_folder=None, pkg_folder=None):
+    def __init__(self, path: str, external_source: bool = False,
+                 layout: Optional[PkgLayout] = None, cwd: Optional[str] = None):
         # Make the recipe path absolute.
         cwd = cwd or os.getcwd()
         if not os.path.isabs(path):
             path = os.path.normpath(os.path.join(cwd, path))
         self._path = path
 
-        # Setup the default folders for building the recipe using the local flow.
-        self._src_folder = src_folder or os.path.dirname(self._path)
-        if not os.path.isabs(self._src_folder):
-            self._src_folder = os.path.normpath(os.path.join(cwd, self._src_folder))
+        # Ideally this property should be queryable from the recipe.
+        # However at the moment I do not know how to do it.
+        self._external_source = external_source
 
-        # FIXME The build folder should be temporary by default and a default pkg folder
-        #       should probably not exist. Maybe even no defaults should be setup at all
-        #       and a helper function for the full local flow is more appropriate.
-        self._build_folder = build_folder or os.path.join(self._src_folder, "_build")
-        self._pkg_folder = pkg_folder or os.path.join(self._src_folder, "_install")
+        self._layout = layout or RelativePkgLayout()
 
-    def get_field(self, field_name):
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def external_source(self):
+        return self._external_source
+
+    def get_field(self, field_name: str):
         self._recipe_field_cache = getattr(self, "_recipe_field_cache", None)
         if self._recipe_field_cache is None:
             tmpfile = None
             try:
                 tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
                 tmpfile.close()
-                sp.check_call([CONAN_PROGRAM, "inspect", self._path, "--json", tmpfile.name],
+                sp.check_call([CONAN_CMD, "inspect", self.path, "--json", tmpfile.name],
                               stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
                 with open(tmpfile.name) as f:
                     self._recipe_field_cache = json.load(f)
@@ -153,47 +305,156 @@ class Recipe():
                     os.unlink(tmpfile.name)
         return self._recipe_field_cache[field_name]
 
-    def reference(self, user, channel, name=None, version=None):
+    def reference(self, user: str, channel: str, name=None, version=None):
         name = name or self.get_field("name")
         version = version or self.get_field("version")
         return Reference(name=name, version=version, user=user, channel=channel)
 
     def export(self, user, channel, name=None, version=None):
         ref = self.reference(name=name, version=version, user=user, channel=channel)
-        run(["export", self._path, str(ref)])
+        run(["export", self.path, str(ref)])
         return ref
 
     def create(self, user, channel, name=None, version=None, remote=None,
                profiles=None, options={}, build=None, cwd=None):
         ref = self.reference(name=name, version=version, user=user, channel=channel)
-        run_build("create", [self._path, str(ref)],
-                  remote=remote, profiles=profiles, options=options, build=build, cwd=cwd)
+        args = fmt_build_args("create", [self.path, str(ref)], remote=remote, profiles=profiles,
+                              options=options, build=build)
+        run(args, cwd=cwd)
         return ref
 
-    def install(self, build_folder=None, profiles=None, options={}, build=None, remote=None):
-        build_folder = build_folder or self._build_folder
-        run_build("install", [self._path], remote=remote, profiles=profiles, options=options,
-                  build=build, cwd=build_folder)
+    def create_local(self, user, channel, name=None, version=None, remote=None,
+                     profiles=None, options={}, build=None, layout=None,
+                     src_folder=None, build_folder=None, pkg_folder=None, add_script=False):
+        self.install(layout=layout, build_folder=build_folder, profiles=profiles, options=options,
+                     build=build, remote=remote, add_script=add_script)
+        if self.external_source:
+            self.source(layout=layout, src_folder=src_folder, build_folder=build_folder,
+                        add_script=add_script)
+        self.build(layout=layout, src_folder=src_folder, build_folder=build_folder,
+                   pkg_folder=pkg_folder, add_script=add_script)
+        self.package(layout=layout, src_folder=src_folder, build_folder=build_folder,
+                     pkg_folder=pkg_folder, add_script=add_script)
+        self.export_pkg(user=user, channel=channel, name=name, version=version, profiles=profiles,
+                        options=options, layout=layout, pkg_folder=pkg_folder,
+                        add_script=add_script)
 
-    def build(self, src_folder=None, build_folder=None, pkg_folder=None):
-        src_folder = src_folder or self._src_folder
-        build_folder = build_folder or self._build_folder
-        pkg_folder = pkg_folder or self._pkg_folder
-        run(["build", self._path,
-             "--source-folder=" + src_folder, "--package-folder=" + pkg_folder],
-            cwd=build_folder)
+    def install(self, layout=None, build_folder=None, profiles=None, options={}, build=None,
+                remote=None, add_script=False):
+        layout = layout or self._layout
+        build_folder = build_folder or layout.build_folder(self)
+        args = fmt_build_args("install", [self.path], remote=remote, profiles=profiles,
+                              options=options, build=build)
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'install', args, build_folder)
+        run(args, cwd=build_folder)
 
-    def package(self, src_folder=None, build_folder=None, pkg_folder=None):
-        src_folder = src_folder or self._src_folder
-        build_folder = build_folder or self._build_folder
-        pkg_folder = pkg_folder or self._pkg_folder
-        run(["package", self._path,
-             "--source-folder=" + src_folder, "--package-folder=" + pkg_folder],
-            cwd=build_folder)
+    def source(self, layout=None, src_folder=None, build_folder=None, add_script=False):
+        layout = layout or self._layout
+        src_folder = src_folder or layout.src_folder(self)
+        build_folder = build_folder or layout.build_folder(self)
+        args = ["source", self.path, "--source-folder=" + src_folder]
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'source', args, build_folder)
+        run(args, cwd=build_folder)
 
-    def local_create(self, profiles=None, build=None, remote=None, options={},
-                     src_folder=None, build_folder=None, pkg_folder=None):
-        self.install(build_folder=build_folder, profiles=profiles, build=build, remote=remote,
-                     options=options)
-        self.build(src_folder=src_folder, build_folder=build_folder, pkg_folder=pkg_folder)
-        self.package(src_folder=src_folder, build_folder=build_folder, pkg_folder=pkg_folder)
+    def build(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None,
+              add_script=False):
+        layout = layout or self._layout
+        src_folder = src_folder or layout.src_folder(self)
+        build_folder = build_folder or layout.build_folder(self)
+        pkg_folder = pkg_folder or layout.pkg_folder(self)
+        args = ["build", self.path, "--source-folder=" + src_folder,
+                "--package-folder=" + pkg_folder]
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'build', args, build_folder)
+        run(args, cwd=build_folder)
+
+    def package(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None,
+                add_script=False):
+        layout = layout or self._layout
+        src_folder = src_folder or layout.src_folder(self)
+        build_folder = build_folder or layout.build_folder(self)
+        pkg_folder = pkg_folder or layout.pkg_folder(self)
+        args = ["package", self.path, "--source-folder=" + src_folder,
+                "--package-folder=" + pkg_folder]
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'package', args, build_folder)
+        run(args, cwd=build_folder)
+
+    def export_pkg(self, user, channel, name=None, version=None, profiles=None, options={},
+                   layout=None, pkg_folder=None, cwd=None, add_script=False):
+        layout = layout or self._layout
+        pkg_folder = pkg_folder or layout.pkg_folder(self)
+        ref = self.reference(name=name, version=version, user=user, channel=channel)
+        args = fmt_build_args("export-pkg", [self.path, str(ref), "--package-folder=" + pkg_folder],
+                              remote=None, profiles=profiles, options=options, build=[])
+        if add_script:
+            write_conan_sh_file(layout.root(self), 'export-pkg', args, cwd)
+        run(args, cwd=cwd)
+
+
+class Workspace():
+    def __init__(self, recipes: List[Recipe]):
+        self._recipes = recipes
+
+    def references(self, user: str, channel: str):
+        return [recipe.reference(user=user, channel=channel) for recipe in self._recipes]
+
+    def install(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
+                profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
+                build: Optional[List[str]] = None, remote: Optional[str] = None,
+                add_script: bool = False):
+        config = configparser.ConfigParser(allow_no_value=True)
+        for recipe in self._recipes:
+                ref = recipe.reference(user, channel)
+                layout = recipe._layout  # FIXME add accessor
+                config["{}:build_folder".format(ref)] = {layout.build_folder(recipe): None}
+                config["{}:source_folder".format(ref)] = {layout.src_folder(recipe): None}
+
+        ws_build_folder = ws_build_folder or os.getcwd()
+        os.makedirs(ws_build_folder, exist_ok=True)
+        layout_file = os.path.join(ws_build_folder, "layout.txt")
+        with open(layout_file, 'w') as f:
+            config.write(f)
+
+        ws_file = os.path.join(ws_build_folder, "ws.yml")
+        with open(ws_file, 'w') as f:
+            f.write("editables:\n")
+            for recipe in self._recipes:
+                f.write("    {}:\n".format(recipe.reference(user, channel)))
+                f.write("        path: {}\n".format(os.path.dirname(recipe.path)))
+            f.write("layout: layout.txt\n")
+            # f.write("workspace_generator: cmake\n")
+            f.write("root:\n")
+            for recipe in self._recipes:
+                f.write("  - {}\n".format(recipe.reference(user, channel)))
+
+        args = ["workspace"]
+        args += fmt_build_args("install", [ws_file], remote=remote, profiles=profiles,
+                               options=options, build=build)
+        if add_script:
+            write_conan_sh_file(ws_build_folder, 'ws-install', args, ws_build_folder)
+        run(args, cwd=ws_build_folder)
+
+    def source(self, add_script: bool = False):
+        for recipe in self._recipes:
+            if recipe.external_source:
+                recipe.source(add_script=add_script)
+
+    def create_local(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
+                     profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
+                     build: Optional[List[str]] = None, remote: Optional[str] = None,
+                     pkg_folder: Optional[str] = None, pkg_folder_override: Dict[Recipe, str] = {},
+                     add_script: bool = False):
+        self.install(user, channel, ws_build_folder=ws_build_folder, profiles=profiles,
+                     options=options, build=build, remote=remote, add_script=add_script)
+        self.source(add_script=add_script)
+        # FIXME extract dependency information for correct build ordering
+        for recipe in self._recipes:
+            recipe_pkg_folder = pkg_folder_override.get(recipe, pkg_folder)
+            recipe.build(pkg_folder=recipe_pkg_folder, add_script=add_script)
+            recipe.package(pkg_folder=recipe_pkg_folder, add_script=add_script)
+            if recipe_pkg_folder is None:
+                recipe.export_pkg(user=user, channel=channel, profiles=profiles,
+                                  options=options, add_script=add_script)

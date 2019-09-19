@@ -10,6 +10,8 @@ def test_out_of_repository(mocker):
 def test_in_repo_on_tag(mocker):
     mocker.patch('ConanTools.Git.is_repository', return_value=True)
     mocker.patch('ConanTools.Git.tag', return_value="5.0.0")
+
+    # The included version number has priority over the tag from git.
     assert ConanTools.Version.pep440("1.2.3") == "1.2.3"
     assert ConanTools.Version.semantic("2.3.4") == "2.3.4"
 

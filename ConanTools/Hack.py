@@ -4,7 +4,7 @@ import os
 
 
 def reach(var_name, function_name=None):
-    """Helper to search for local variable by traversing the call stack.
+    """Helper to search for a local variable by traversing the call stack.
     """
     for f in reversed(inspect.stack()):
         if function_name and f.function != function_name:
