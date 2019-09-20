@@ -1,4 +1,5 @@
-from pathlib Path
+import os
+from pathlib import Path
 from subprocess import run, PIPE, DEVNULL
 from typing import List, Optional
 
