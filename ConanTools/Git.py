@@ -1,3 +1,4 @@
+from pathlib Path
 from subprocess import run, PIPE, DEVNULL
 from typing import List, Optional
 
@@ -16,16 +17,19 @@ def branches(rev: Optional[str] = None, cwd: Optional[str] = None) -> List[str]:
     refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads"],
                stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
                check=True).stdout.strip()
+    if refs != "":
+        refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
+        return [name for sha, name in refs if sha == current_sha]
     # Fallback to remote refs if no heads exist.
-    if refs == "":
-        refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname:lstrip=3)",
-                    "refs/remotes"],
-                   stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
-                   check=True).stdout.strip()
-    if refs == "":
-        return None
-    refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
-    return [name for sha, name in refs if sha == current_sha]
+    refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes"],
+               stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
+               check=True).stdout.strip()
+    if refs != "":
+        refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
+        # Strip the first 3 components from the ref to get the branch name
+        # (newer git versions have "--format=%(objectname) %(refname:lstrip=3)")
+        return [os.path.join(*Path(name).parts[3:]) for sha, name in refs if sha == current_sha]
+    return None
 
 
 def branch(cwd: Optional[str] = None) -> Optional[str]:

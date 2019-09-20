@@ -335,9 +335,9 @@ class Recipe():
                    pkg_folder=pkg_folder, add_script=add_script)
         self.package(layout=layout, src_folder=src_folder, build_folder=build_folder,
                      pkg_folder=pkg_folder, add_script=add_script)
-        self.export_pkg(user=user, channel=channel, name=name, version=version, profiles=profiles,
-                        options=options, layout=layout, pkg_folder=pkg_folder,
-                        add_script=add_script)
+        return self.export_pkg(user=user, channel=channel, name=name, version=version,
+                               profiles=profiles, options=options, layout=layout,
+                               pkg_folder=pkg_folder, add_script=add_script)
 
     def install(self, layout=None, build_folder=None, profiles=None, options={}, build=None,
                 remote=None, add_script=False):
@@ -392,6 +392,7 @@ class Recipe():
         if add_script:
             write_conan_sh_file(layout.root(self), 'export-pkg', args, cwd)
         run(args, cwd=cwd)
+        return ref
 
 
 class Workspace():
