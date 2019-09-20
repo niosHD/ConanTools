@@ -14,7 +14,7 @@ from typing import Optional
 # The following version string is only relevant when the repository gets tagged, when the package
 # is deployed (e.g., pypi), or before the first tag is created in the repository.
 # -> Update it to the release version before cutting the release.
-__version_string__ = '0.3.2'
+__version_string__ = '0.3.3'
 
 
 def is_release(cwd: Optional[str] = None) -> bool:
