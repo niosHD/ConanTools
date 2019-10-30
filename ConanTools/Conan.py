@@ -407,6 +407,7 @@ class Workspace():
                 build: Optional[List[str]] = None, remote: Optional[str] = None,
                 add_script: bool = False):
         config = configparser.ConfigParser(allow_no_value=True)
+        config.optionxform = str
         for recipe in self._recipes:
                 ref = recipe.reference(user, channel)
                 layout = recipe._layout  # FIXME add accessor
