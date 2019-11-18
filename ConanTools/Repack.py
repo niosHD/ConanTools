@@ -37,6 +37,7 @@ class ConanImportTxtFile:
     def install(self, remote=None, profiles=None, options={}, build=None, cwd=None):
         # write a conanfile in txt format with the package ids the imports
         config = configparser.ConfigParser(allow_no_value=True)
+        config.optionxform = str
         config["requires"] = {x: None for x in self._package_ids.values()}
         config["imports"] = {
             "., * -> . @ root_package={}".format(x): None for x in self._package_ids.keys()
@@ -58,6 +59,7 @@ class ConanImportTxtFile:
 
 def extend_profile(inpath, outpath, build_requires):
     config = configparser.ConfigParser(allow_no_value=True)
+    config.optionxform = str
     config.read([inpath])
     for x in build_requires:
         config["build_requires"][x] = None
