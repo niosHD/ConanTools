@@ -5,6 +5,27 @@ the conan command line tool. We opted for this approach because the internal con
 to the command line tool, is `not stable at the moment
 <https://github.com/conan-io/conan/issues/3720>`_.
 
+Installation
+~~~~~~~~~~~~
+ConanTools releases are automatically deployed to PyPI as
+`ConanTools <https://pypi.org/project/ConanTools/>`_ . Subsequently, acquiring an
+up-to-date version for usage within python scripts is possible using the following command:
+
+.. code-block:: bash
+
+    $ pip3 install ConanTools
+
+Alternatively, for usage within a conanfile.py using
+`python_requires <https://docs.conan.io/en/latest/reference/conanfile/other.html#python-requires>`_,
+ConanTools are also provided as conan package on
+`Bintray <https://bintray.com/nioshd/conan/ConanTools%3Anioshd>`_. Adding the remote and downloading
+version 0.3.5 is achieved using the following commands:
+
+.. code-block:: bash
+
+    $ conan remote add bt_nioshd "https://api.bintray.com/conan/nioshd/conan"
+    $ conan download -r bt_nioshd ConanTools/0.3.5@nioshd/stable
+
 Building the Sphinx Documentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

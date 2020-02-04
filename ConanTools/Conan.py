@@ -1,12 +1,15 @@
 import configparser
+from datetime import datetime
+from distutils.dir_util import copy_tree
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess as sp
 import sys
 import tempfile
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import ConanTools
 import ConanTools.Hack as Hack
@@ -16,6 +19,19 @@ CONAN_CMD = os.environ.get("CT_CONAN_CMD", "conan")
 
 def cmd_to_string(cmd: List[str]) -> str:
     return " ".join([shlex.quote(x) for x in cmd])
+
+
+def _run_json(args: List[str]):
+    try:
+        tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        tmpfile.close()
+        sp.check_call([CONAN_CMD] + args + ["--json", tmpfile.name],
+                      stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+        with open(tmpfile.name) as f:
+            return json.load(f)
+    finally:
+        if tmpfile and os.path.exists(tmpfile.name):
+            os.unlink(tmpfile.name)
 
 
 # TODO use the check argument of sp.run (requires larger test updates)
@@ -112,6 +128,12 @@ class Reference():
         self._user = user
         self._channel = channel
 
+    @classmethod
+    def from_string(cls, ref: str) -> 'Reference':
+        # FIXME support new conan center convention without user and channel
+        reference_regex = re.compile(r'([\w\.\+\-]+)/([\w\.\+\-]+)@([\w\.\+\-]+)/([\w\.\+\-]+)')
+        return cls(*reference_regex.match(ref).group(1, 2, 3, 4))
+
     @property
     def name(self):
         return self._name
@@ -137,6 +159,9 @@ class Reference():
     def __str__(self):
         return "{}/{}@{}/{}".format(self.name, self.version, self.user, self.channel)
 
+    def __repr__(self):
+        return str(self)
+
     def in_local_cache(self):
         # check if the recipe is known locally
         result = run(["search", str(self)], check=False)
@@ -150,6 +175,10 @@ class Reference():
         if result.returncode == 0:
             return True
         return False
+
+    def get_creation_date(self, remote: Optional[str] = None) -> datetime:
+        json_result = info(str(self), remote)
+        return datetime.strptime(json_result['creation_date'], '%Y-%m-%d %H:%M:%S')
 
     def download_recipe(self, remote=None):
         remote_args = fmt_arg_list(remote or [], "--remote")
@@ -289,21 +318,8 @@ class Recipe():
     def external_source(self):
         return self._external_source
 
-    def get_field(self, field_name: str):
-        self._recipe_field_cache = getattr(self, "_recipe_field_cache", None)
-        if self._recipe_field_cache is None:
-            tmpfile = None
-            try:
-                tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
-                tmpfile.close()
-                sp.check_call([CONAN_CMD, "inspect", self.path, "--json", tmpfile.name],
-                              stdin=sp.DEVNULL, stdout=sp.DEVNULL, stderr=sp.DEVNULL)
-                with open(tmpfile.name) as f:
-                    self._recipe_field_cache = json.load(f)
-            finally:
-                if tmpfile and os.path.exists(tmpfile.name):
-                    os.unlink(tmpfile.name)
-        return self._recipe_field_cache[field_name]
+    def get_field(self, field_name: str, default: Any = None):
+        return inspect(self.path, attribute=field_name, default=default)
 
     def reference(self, user: str, channel: str, name=None, version=None):
         name = name or self.get_field("name")
@@ -352,6 +368,8 @@ class Recipe():
     def source(self, layout=None, src_folder=None, build_folder=None, add_script=False):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
+        # Delete the source folder if it already exists.
+        shutil.rmtree(src_folder, ignore_errors=True)
         build_folder = build_folder or layout.build_folder(self)
         args = ["source", self.path, "--source-folder=" + src_folder]
         if add_script:
@@ -366,6 +384,10 @@ class Recipe():
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         args = ["build", self.path, "--source-folder=" + src_folder,
                 "--package-folder=" + pkg_folder]
+        if src_folder != build_folder and self.get_field("no_copy_source", False) is False:
+            # Unlike "conan create", "conan build" does not copy the source folder to the build
+            # folder automatically. We have to perform this copy because recipes depend on it.
+            copy_tree(src_folder, build_folder, preserve_symlinks=1)
         if add_script:
             write_conan_sh_file(layout.root(self), 'build', args, build_folder)
         run(args, cwd=build_folder)
@@ -460,3 +482,35 @@ class Workspace():
             if recipe_pkg_folder is None:
                 recipe.export_pkg(user=user, channel=channel, profiles=profiles,
                                   options=options, add_script=add_script)
+
+
+def search(pattern: str = "*", remote: Optional[str] = None) -> List[Reference]:
+    json_result = _run_json(["search", pattern] + fmt_arg_list(remote or [], "--remote"))
+    # FIXME check the json_result['error'] field
+    # FIXME support multiple remotes
+    assert len(json_result['results']) == 1
+    assert json_result['results'][0]['remote'] == remote
+    return [Reference.from_string(x['recipe']['id']) for x in json_result['results'][0]['items']]
+
+
+def info(path_or_ref: str, remote: Optional[str] = None):
+    # NOTE: Conan implicitely downloads the recipe if it is not available locally.
+    json_result = _run_json(["info", path_or_ref] + fmt_arg_list(remote or [], "--remote"))
+    assert len(json_result) == 1
+    return json_result[0]
+
+
+def inspect(path_or_ref: str, attribute: Optional[str] = None,
+            default: Any = None,
+            remote: Optional[str] = None) -> Union[dict, Any]:
+    json_result = _run_json(["inspect", path_or_ref] +
+                            fmt_arg_list(attribute or [], "--attribute") +
+                            fmt_arg_list(remote or [], "--remote"))
+    if attribute:
+        # conan returns an empty string if the attribute is not defined.
+        # We replace this sentinel with the user defined default value.
+        res = json_result[attribute]
+        if res == '':
+            return default
+        return res
+    return json_result

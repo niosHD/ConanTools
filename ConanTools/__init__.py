@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 import ConanTools.Conan as Conan
 import ConanTools.Repack
+import ConanTools.Version
 
 
 def slug(input: Optional[str]) -> Optional[str]:
