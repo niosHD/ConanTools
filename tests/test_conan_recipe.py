@@ -23,6 +23,7 @@ inspectJSON = """
  "revision_mode": "hash",
  "settings": null,
  "options": null,
+ "no_copy_source": true,
  "default_options": null}
 """
 
@@ -43,6 +44,8 @@ def mock_run(mocker):
     run_ret = mocker.Mock()
     mocker.patch('os.makedirs')
     mocker.patch('subprocess.run', return_value=run_ret)
+    mocker.patch('distutils.dir_util.copy_tree')
+    mocker.patch('shutil.rmtree')
     return run_ret
 
 
@@ -161,7 +164,7 @@ def test_recipe_source(mock_run):
             "--source-folder=src") == output.getvalue().strip()
 
 
-def test_recipe_build(mock_run):
+def test_recipe_build(mock_run, mock_inspect):
     # Test call when build fails.
     recipe = Conan.Recipe("/foobar.py")
     mock_run.returncode = 1
