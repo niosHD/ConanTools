@@ -46,6 +46,7 @@ def mock_run(mocker):
     mocker.patch('subprocess.run', return_value=run_ret)
     mocker.patch('distutils.dir_util.copy_tree')
     mocker.patch('shutil.rmtree')
+    mocker.patch('ConanTools.Conan.create_stamp_file')
     return run_ret
 
 

@@ -21,6 +21,11 @@ def cmd_to_string(cmd: List[str]) -> str:
     return " ".join([shlex.quote(x) for x in cmd])
 
 
+def create_stamp_file(path: str):
+    with open(path, 'a'):
+        pass
+
+
 def _run_json(args: List[str]):
     try:
         tmpfile = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
@@ -368,6 +373,9 @@ class Recipe():
     def source(self, layout=None, src_folder=None, build_folder=None, add_script=False):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
+        stamp_file = os.path.join(src_folder, ".ct_source_finished")
+        if os.path.isfile(stamp_file):
+            return
         # Delete the source folder if it already exists.
         shutil.rmtree(src_folder, ignore_errors=True)
         build_folder = build_folder or layout.build_folder(self)
@@ -375,6 +383,8 @@ class Recipe():
         if add_script:
             write_conan_sh_file(layout.root(self), 'source', args, build_folder)
         run(args, cwd=build_folder)
+        # Create the stamp file after successfully executing conan source.
+        create_stamp_file(stamp_file)
 
     def build(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None,
               add_script=False):
