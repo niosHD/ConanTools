@@ -44,6 +44,9 @@ setup(author='Mario Werner',
           }
       },
       description='Helpers and tools that make working with conan more convenient.',
+      entry_points={
+          'console_scripts': ['ct=ConanTools.ct:main'],
+      },
       extras_require={
           'documentation': ['sphinx', 'sphinx-autodoc-typehints'],
       },
