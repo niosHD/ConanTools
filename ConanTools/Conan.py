@@ -1,11 +1,11 @@
 import configparser
 from datetime import datetime
-from distutils.dir_util import copy_tree
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess as sp
 import sys
 import tempfile
@@ -14,6 +14,43 @@ from typing import Any, Dict, List, Optional, Union
 import ConanTools
 
 CONAN_CMD = os.environ.get("CT_CONAN_CMD", "conan")
+
+
+def copytree(src: str, dst: str, symlinks: bool = True):
+    """Custom copytree implementation that works with existing directories.
+
+    This implementation has its roots in [1] and works around the problem that shutil.copytree
+    before Python 3.8 does not work with existing directories. The alternatively recommended
+    distutils.dir_util.copy_tree function supports this usecase but failed when when symlinks are
+    enabled. Moreover, it is apparently not considered a public function [2].
+
+    [1] https://stackoverflow.com/a/22331852
+    [2] https://bugs.python.org/issue10948#msg337892
+    """
+    if not os.path.exists(dst):
+        os.makedirs(dst)
+        shutil.copystat(src, dst)
+    lst = os.listdir(src)
+    for item in lst:
+        s = os.path.join(src, item)
+        d = os.path.join(dst, item)
+        if symlinks and os.path.islink(s):
+            if os.path.lexists(d):
+                os.remove(d)
+            os.symlink(os.readlink(s), d)
+            try:
+                st = os.lstat(s)
+                mode = stat.S_IMODE(st.st_mode)
+                os.lchmod(d, mode)
+            except:
+                pass  # lchmod not available
+        elif os.path.isdir(s):
+            copytree(s, d, symlinks)
+        else:
+            # Work around the fact that copy2 fails when the destination is not writeable.
+            if not os.access(d, os.W_OK):
+                os.chmod(d, stat.S_IWRITE)
+            shutil.copy2(s, d)
 
 
 def cmd_to_string(cmd: List[str]) -> str:
@@ -397,7 +434,7 @@ class Recipe():
         if src_folder != build_folder and self.get_field("no_copy_source", False) is False:
             # Unlike "conan create", "conan build" does not copy the source folder to the build
             # folder automatically. We have to perform this copy because recipes depend on it.
-            copy_tree(src_folder, build_folder, preserve_symlinks=1)
+            copytree(src_folder, build_folder)
         if add_script:
             write_conan_sh_file(layout.root(self), 'build', args, build_folder)
         run(args, cwd=build_folder)
