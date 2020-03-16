@@ -47,7 +47,7 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 def pkg_create(recipe: Conan.Recipe, user: str, channel: str, name: Optional[str] = None,
                version: Optional[str] = None, remote: Optional[str] = None,
-               profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
+               profiles: List[Optional[str]] = ["outdated"], options: Dict[str, str] = {},
                build: Optional[List[str]] = None, cwd: Optional[str] = None,
                layout: Optional['Conan.PkgLayout'] = None, create_local: Optional[bool] = None):
     """Creates a package from the recipe using either the local or cache-based workflow.
@@ -69,8 +69,8 @@ def pkg_create(recipe: Conan.Recipe, user: str, channel: str, name: Optional[str
 
 def pkg_import(recipe: Conan.Recipe, user: str, channel: str, name: Optional[str] = None,
                version: Optional[str] = None, remote: Optional[str] = None,
-               profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
-               build: Optional[List[str]] = None, pkg_folder: Optional[str] = None,
+               profiles: List[str] = [], options: Dict[str, str] = {},
+               build: List[Optional[str]] = ["outdated"], pkg_folder: Optional[str] = None,
                enable_subpackages: Optional[bool] = None):
     """Imports the package content, after building it if necessary, into the pkg_folder.
 
@@ -121,8 +121,8 @@ def pkg_import(recipe: Conan.Recipe, user: str, channel: str, name: Optional[str
 
 def ws_import(ws: Conan.Workspace, user: str, channel: str, name: Optional[str] = None,
               version: Optional[str] = None, remote: Optional[str] = None,
-              profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
-              build: Optional[List[str]] = None, pkg_folder: Optional[str] = None,
+              profiles: List[str] = [], options: Dict[str, str] = {},
+              build: List[Optional[str]] = ["outdated"], pkg_folder: Optional[str] = None,
               enable_subpackages: Optional[bool] = None, cwd=None,
               pkg_folder_override: Dict[Conan.Recipe, str] = {}):
     """Imports the workspace content, after building it if necessary, into the pkg_folder.

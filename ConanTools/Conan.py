@@ -12,7 +12,6 @@ import tempfile
 from typing import Any, Dict, List, Optional, Union
 
 import ConanTools
-import ConanTools.Hack as Hack
 
 CONAN_CMD = os.environ.get("CT_CONAN_CMD", "conan")
 
@@ -88,23 +87,24 @@ def write_conan_sh_file(filedir: str, basename: str, args: List[str], cmd_cwd: O
     os.chmod(filepath, mode)
 
 
-def fmt_arg_list(values: Union[List[str], str], argument: str):
+def fmt_arg_list(values: Union[List[Optional[str]], Optional[str]], key: str) -> List[str]:
+    """Generates an argument list by injecting option keys between the values.
+
+    As value either one optional string or a list of optional strings are accepted. Hereby, None
+    values are simply omitted and only the key is inserted into the argument list.
+    """
     args = []
     if not isinstance(values, list):
         values = [values]
     for x in values:
-        args.append(argument)
+        args.append(key)
         if x is not None:
             args.append(x)
     return args
 
 
-def fmt_build_args(cmd: str, args: List[str], remote: Optional[str], profiles: Optional[List[str]],
-                   build: Optional[List[str]], options: Dict[str, str]) -> List[str]:
-    if profiles is None:
-        profiles = Hack.get_cl_profiles()
-    if build is None:
-        build = Hack.get_cl_build_flags() or "outdated"
+def fmt_build_args(cmd: str, args: List[str], remote: Optional[str], profiles: List[str],
+                   build: List[Optional[str]], options: Dict[str, str]) -> List[str]:
     profile_args = fmt_arg_list(profiles, "--profile")
     build_args = fmt_arg_list(build, "--build")
     remote_args = fmt_arg_list(remote or [], "--remote")
@@ -189,7 +189,7 @@ class Reference():
         remote_args = fmt_arg_list(remote or [], "--remote")
         run(["download", str(self), "--recipe"] + remote_args)
 
-    def install(self, remote=None, profiles=None, build=None, options={}, cwd=None):
+    def install(self, remote=None, profiles=[], build=["outdated"], options={}, cwd=None):
         args = fmt_build_args("install", [str(self)], remote=remote, profiles=profiles,
                               options=options, build=build)
         run(args, cwd=cwd)
@@ -337,7 +337,7 @@ class Recipe():
         return ref
 
     def create(self, user, channel, name=None, version=None, remote=None,
-               profiles=None, options={}, build=None, cwd=None):
+               profiles=[], options={}, build=["outdated"], cwd=None):
         ref = self.reference(name=name, version=version, user=user, channel=channel)
         args = fmt_build_args("create", [self.path, str(ref)], remote=remote, profiles=profiles,
                               options=options, build=build)
@@ -345,7 +345,7 @@ class Recipe():
         return ref
 
     def create_local(self, user, channel, name=None, version=None, remote=None,
-                     profiles=None, options={}, build=None, layout=None,
+                     profiles=[], options={}, build=["outdated"], layout=None,
                      src_folder=None, build_folder=None, pkg_folder=None, add_script=False):
         self.install(layout=layout, build_folder=build_folder, profiles=profiles, options=options,
                      build=build, remote=remote, add_script=add_script)
@@ -360,7 +360,7 @@ class Recipe():
                                profiles=profiles, options=options, layout=layout,
                                pkg_folder=pkg_folder, add_script=add_script)
 
-    def install(self, layout=None, build_folder=None, profiles=None, options={}, build=None,
+    def install(self, layout=None, build_folder=None, profiles=[], options={}, build=["outdated"],
                 remote=None, add_script=False):
         layout = layout or self._layout
         build_folder = build_folder or layout.build_folder(self)
@@ -414,7 +414,7 @@ class Recipe():
             write_conan_sh_file(layout.root(self), 'package', args, build_folder)
         run(args, cwd=build_folder)
 
-    def export_pkg(self, user, channel, name=None, version=None, profiles=None, options={},
+    def export_pkg(self, user, channel, name=None, version=None, profiles=[], options={},
                    layout=None, pkg_folder=None, cwd=None, add_script=False):
         layout = layout or self._layout
         pkg_folder = pkg_folder or layout.pkg_folder(self)
@@ -435,8 +435,8 @@ class Workspace():
         return [recipe.reference(user=user, channel=channel) for recipe in self._recipes]
 
     def install(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
-                profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
-                build: Optional[List[str]] = None, remote: Optional[str] = None,
+                profiles: List[str] = [], options: Dict[str, str] = {},
+                build: List[Optional[str]] = ["outdated"], remote: Optional[str] = None,
                 add_script: bool = False):
         config = configparser.ConfigParser(allow_no_value=True)
         config.optionxform = str
@@ -477,8 +477,8 @@ class Workspace():
                 recipe.source(add_script=add_script)
 
     def create_local(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
-                     profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
-                     build: Optional[List[str]] = None, remote: Optional[str] = None,
+                     profiles: List[str] = [], options: Dict[str, str] = {},
+                     build: List[Optional[str]] = ["outdated"], remote: Optional[str] = None,
                      pkg_folder: Optional[str] = None, pkg_folder_override: Dict[Recipe, str] = {},
                      add_script: bool = False):
         self.install(user, channel, ws_build_folder=ws_build_folder, profiles=profiles,

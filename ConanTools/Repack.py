@@ -34,7 +34,7 @@ class ConanImportTxtFile:
         for ref in refs:
             self.add_package(ref)
 
-    def install(self, remote=None, profiles=None, options={}, build=None, cwd=None):
+    def install(self, remote=None, profiles=[], options={}, build=["outdated"], cwd=None):
         # write a conanfile in txt format with the package ids the imports
         config = configparser.ConfigParser(allow_no_value=True)
         config.optionxform = str
