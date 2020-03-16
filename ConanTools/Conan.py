@@ -451,13 +451,18 @@ class Recipe():
             write_conan_sh_file(layout.root(self), 'package', args, build_folder)
         run(args, cwd=build_folder)
 
-    def export_pkg(self, user, channel, name=None, version=None, profiles=[], options={},
-                   layout=None, pkg_folder=None, cwd=None, add_script=False):
+    def export_pkg(self, user: str, channel: str, name: Optional[str] = None,
+                   version: Optional[str] = None, force: bool = True, profiles: List[str] = [],
+                   options: Dict[str, str] = {}, layout: Optional[PkgLayout] = None,
+                   pkg_folder: Optional[str] = None, cwd: Optional[str] = None,
+                   add_script: bool = False):
         layout = layout or self._layout
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         ref = self.reference(name=name, version=version, user=user, channel=channel)
         args = fmt_build_args("export-pkg", [self.path, str(ref), "--package-folder=" + pkg_folder],
                               remote=None, profiles=profiles, options=options, build=[])
+        if force:
+            args.append("--force")
         if add_script:
             write_conan_sh_file(layout.root(self), 'export-pkg', args, cwd)
         run(args, cwd=cwd)
