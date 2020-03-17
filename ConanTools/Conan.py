@@ -48,7 +48,7 @@ def copytree(src: str, dst: str, symlinks: bool = True):
             copytree(s, d, symlinks)
         else:
             # Work around the fact that copy2 fails when the destination is not writeable.
-            if not os.access(d, os.W_OK):
+            if os.path.exists(d) and not os.access(d, os.W_OK):
                 os.chmod(d, stat.S_IWRITE)
             shutil.copy2(s, d)
 
