@@ -46,6 +46,7 @@ def mock_run(mocker):
     mocker.patch('subprocess.run', return_value=run_ret)
     mocker.patch('distutils.dir_util.copy_tree')
     mocker.patch('shutil.rmtree')
+    mocker.patch('ConanTools.Conan.create_stamp_file')
     return run_ret
 
 
@@ -215,7 +216,7 @@ def test_recipe_export_pkg(mock_run, mock_inspect):
         with pytest.raises(ValueError):
             recipe.export_pkg("bar", "testing", profiles=['a.p'], pkg_folder="/tmp/pkg", cwd="/ab")
     assert ("[/ab] $ conan export-pkg /foobar.py ConanTools/0.1.1-post7+ga21edb7f08@bar/testing "
-            "--package-folder=/tmp/pkg --profile a.p") == output.getvalue().strip()
+            "--package-folder=/tmp/pkg --profile a.p --force") == output.getvalue().strip()
 
     # Test call when export_pkg succeeds.
     recipe = Conan.Recipe("foobar.py", cwd="/tmp")
@@ -223,7 +224,7 @@ def test_recipe_export_pkg(mock_run, mock_inspect):
     output = io.StringIO()
     with redirect_stdout(output):
         recipe.export_pkg("bar", "testing", version="5.6.8", options={"key": True},
-                          pkg_folder="/tmp/pkg", cwd="/tmp/_build")
+                          pkg_folder="/tmp/pkg", cwd="/tmp/_build", force=False)
     assert ("[/tmp/_build] $ conan export-pkg /tmp/foobar.py ConanTools/5.6.8@bar/testing "
             "--package-folder=/tmp/pkg -o key=True") in output.getvalue()
 

@@ -1,24 +1,65 @@
 import configparser
 from datetime import datetime
-from distutils.dir_util import copy_tree
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess as sp
 import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Union
 
 import ConanTools
-import ConanTools.Hack as Hack
 
 CONAN_CMD = os.environ.get("CT_CONAN_CMD", "conan")
 
 
+def copytree(src: str, dst: str, symlinks: bool = True):
+    """Custom copytree implementation that works with existing directories.
+
+    This implementation has its roots in [1] and works around the problem that shutil.copytree
+    before Python 3.8 does not work with existing directories. The alternatively recommended
+    distutils.dir_util.copy_tree function supports this usecase but failed when when symlinks are
+    enabled. Moreover, it is apparently not considered a public function [2].
+
+    [1] https://stackoverflow.com/a/22331852
+    [2] https://bugs.python.org/issue10948#msg337892
+    """
+    if not os.path.exists(dst):
+        os.makedirs(dst)
+        shutil.copystat(src, dst)
+    lst = os.listdir(src)
+    for item in lst:
+        s = os.path.join(src, item)
+        d = os.path.join(dst, item)
+        if symlinks and os.path.islink(s):
+            if os.path.lexists(d):
+                os.remove(d)
+            os.symlink(os.readlink(s), d)
+            try:
+                st = os.lstat(s)
+                mode = stat.S_IMODE(st.st_mode)
+                os.lchmod(d, mode)
+            except:
+                pass  # lchmod not available
+        elif os.path.isdir(s):
+            copytree(s, d, symlinks)
+        else:
+            # Work around the fact that copy2 fails when the destination is not writeable.
+            if not os.access(d, os.W_OK):
+                os.chmod(d, stat.S_IWRITE)
+            shutil.copy2(s, d)
+
+
 def cmd_to_string(cmd: List[str]) -> str:
     return " ".join([shlex.quote(x) for x in cmd])
+
+
+def create_stamp_file(path: str):
+    with open(path, 'a'):
+        pass
 
 
 def _run_json(args: List[str]):
@@ -83,23 +124,24 @@ def write_conan_sh_file(filedir: str, basename: str, args: List[str], cmd_cwd: O
     os.chmod(filepath, mode)
 
 
-def fmt_arg_list(values: Union[List[str], str], argument: str):
+def fmt_arg_list(values: Union[List[Optional[str]], Optional[str]], key: str) -> List[str]:
+    """Generates an argument list by injecting option keys between the values.
+
+    As value either one optional string or a list of optional strings are accepted. Hereby, None
+    values are simply omitted and only the key is inserted into the argument list.
+    """
     args = []
     if not isinstance(values, list):
         values = [values]
     for x in values:
-        args.append(argument)
+        args.append(key)
         if x is not None:
             args.append(x)
     return args
 
 
-def fmt_build_args(cmd: str, args: List[str], remote: Optional[str], profiles: Optional[List[str]],
-                   build: Optional[List[str]], options: Dict[str, str]) -> List[str]:
-    if profiles is None:
-        profiles = Hack.get_cl_profiles()
-    if build is None:
-        build = Hack.get_cl_build_flags() or "outdated"
+def fmt_build_args(cmd: str, args: List[str], remote: Optional[str], profiles: List[str],
+                   build: List[Optional[str]], options: Dict[str, str]) -> List[str]:
     profile_args = fmt_arg_list(profiles, "--profile")
     build_args = fmt_arg_list(build, "--build")
     remote_args = fmt_arg_list(remote or [], "--remote")
@@ -184,7 +226,7 @@ class Reference():
         remote_args = fmt_arg_list(remote or [], "--remote")
         run(["download", str(self), "--recipe"] + remote_args)
 
-    def install(self, remote=None, profiles=None, build=None, options={}, cwd=None):
+    def install(self, remote=None, profiles=[], build=["outdated"], options={}, cwd=None):
         args = fmt_build_args("install", [str(self)], remote=remote, profiles=profiles,
                               options=options, build=build)
         run(args, cwd=cwd)
@@ -332,7 +374,7 @@ class Recipe():
         return ref
 
     def create(self, user, channel, name=None, version=None, remote=None,
-               profiles=None, options={}, build=None, cwd=None):
+               profiles=[], options={}, build=["outdated"], cwd=None):
         ref = self.reference(name=name, version=version, user=user, channel=channel)
         args = fmt_build_args("create", [self.path, str(ref)], remote=remote, profiles=profiles,
                               options=options, build=build)
@@ -340,7 +382,7 @@ class Recipe():
         return ref
 
     def create_local(self, user, channel, name=None, version=None, remote=None,
-                     profiles=None, options={}, build=None, layout=None,
+                     profiles=[], options={}, build=["outdated"], layout=None,
                      src_folder=None, build_folder=None, pkg_folder=None, add_script=False):
         self.install(layout=layout, build_folder=build_folder, profiles=profiles, options=options,
                      build=build, remote=remote, add_script=add_script)
@@ -355,7 +397,7 @@ class Recipe():
                                profiles=profiles, options=options, layout=layout,
                                pkg_folder=pkg_folder, add_script=add_script)
 
-    def install(self, layout=None, build_folder=None, profiles=None, options={}, build=None,
+    def install(self, layout=None, build_folder=None, profiles=[], options={}, build=["outdated"],
                 remote=None, add_script=False):
         layout = layout or self._layout
         build_folder = build_folder or layout.build_folder(self)
@@ -368,6 +410,9 @@ class Recipe():
     def source(self, layout=None, src_folder=None, build_folder=None, add_script=False):
         layout = layout or self._layout
         src_folder = src_folder or layout.src_folder(self)
+        stamp_file = os.path.join(src_folder, ".ct_source_finished")
+        if os.path.isfile(stamp_file):
+            return
         # Delete the source folder if it already exists.
         shutil.rmtree(src_folder, ignore_errors=True)
         build_folder = build_folder or layout.build_folder(self)
@@ -375,6 +420,8 @@ class Recipe():
         if add_script:
             write_conan_sh_file(layout.root(self), 'source', args, build_folder)
         run(args, cwd=build_folder)
+        # Create the stamp file after successfully executing conan source.
+        create_stamp_file(stamp_file)
 
     def build(self, layout=None, src_folder=None, build_folder=None, pkg_folder=None,
               add_script=False):
@@ -387,7 +434,7 @@ class Recipe():
         if src_folder != build_folder and self.get_field("no_copy_source", False) is False:
             # Unlike "conan create", "conan build" does not copy the source folder to the build
             # folder automatically. We have to perform this copy because recipes depend on it.
-            copy_tree(src_folder, build_folder, preserve_symlinks=1)
+            copytree(src_folder, build_folder)
         if add_script:
             write_conan_sh_file(layout.root(self), 'build', args, build_folder)
         run(args, cwd=build_folder)
@@ -404,13 +451,18 @@ class Recipe():
             write_conan_sh_file(layout.root(self), 'package', args, build_folder)
         run(args, cwd=build_folder)
 
-    def export_pkg(self, user, channel, name=None, version=None, profiles=None, options={},
-                   layout=None, pkg_folder=None, cwd=None, add_script=False):
+    def export_pkg(self, user: str, channel: str, name: Optional[str] = None,
+                   version: Optional[str] = None, force: bool = True, profiles: List[str] = [],
+                   options: Dict[str, str] = {}, layout: Optional[PkgLayout] = None,
+                   pkg_folder: Optional[str] = None, cwd: Optional[str] = None,
+                   add_script: bool = False):
         layout = layout or self._layout
         pkg_folder = pkg_folder or layout.pkg_folder(self)
         ref = self.reference(name=name, version=version, user=user, channel=channel)
         args = fmt_build_args("export-pkg", [self.path, str(ref), "--package-folder=" + pkg_folder],
                               remote=None, profiles=profiles, options=options, build=[])
+        if force:
+            args.append("--force")
         if add_script:
             write_conan_sh_file(layout.root(self), 'export-pkg', args, cwd)
         run(args, cwd=cwd)
@@ -425,8 +477,8 @@ class Workspace():
         return [recipe.reference(user=user, channel=channel) for recipe in self._recipes]
 
     def install(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
-                profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
-                build: Optional[List[str]] = None, remote: Optional[str] = None,
+                profiles: List[str] = [], options: Dict[str, str] = {},
+                build: List[Optional[str]] = ["outdated"], remote: Optional[str] = None,
                 add_script: bool = False):
         config = configparser.ConfigParser(allow_no_value=True)
         config.optionxform = str
@@ -467,8 +519,8 @@ class Workspace():
                 recipe.source(add_script=add_script)
 
     def create_local(self, user: str, channel: str, ws_build_folder: Optional[str] = None,
-                     profiles: Optional[List[str]] = None, options: Dict[str, str] = {},
-                     build: Optional[List[str]] = None, remote: Optional[str] = None,
+                     profiles: List[str] = [], options: Dict[str, str] = {},
+                     build: List[Optional[str]] = ["outdated"], remote: Optional[str] = None,
                      pkg_folder: Optional[str] = None, pkg_folder_override: Dict[Recipe, str] = {},
                      add_script: bool = False):
         self.install(user, channel, ws_build_folder=ws_build_folder, profiles=profiles,
