@@ -1,3 +1,10 @@
+"""Support module for querying git.
+
+This module provides a few simple methods to deduce information like the current revision, the name
+of the current tag, or potential branch names from a git repository. We call git using a subprocess
+to the deduce the needed information which means that a shell installation of git is required to
+use this module.
+"""
 import os
 from pathlib import Path
 from subprocess import run, PIPE, DEVNULL
