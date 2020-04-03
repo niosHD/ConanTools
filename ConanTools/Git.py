@@ -20,6 +20,7 @@ def revision(cwd: Optional[str] = None) -> Optional[str]:
 
 
 def branches(rev: Optional[str] = None, cwd: Optional[str] = None) -> List[str]:
+    result = []
     current_sha = rev or revision(cwd=cwd)
     # Get a list of all heads and their SHAs.
     refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads"],
@@ -27,8 +28,10 @@ def branches(rev: Optional[str] = None, cwd: Optional[str] = None) -> List[str]:
                check=True).stdout.strip()
     if refs != "":
         refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
-        return [name for sha, name in refs if sha == current_sha]
-    # Fallback to remote refs if no heads exist.
+        result = [name for sha, name in refs if sha == current_sha]
+        if len(result) > 0:
+            return result
+    # Fallback to remote refs if no suitable head exist.
     refs = run(["git", "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes"],
                stdin=DEVNULL, stdout=PIPE, stderr=DEVNULL, universal_newlines=True, cwd=cwd,
                check=True).stdout.strip()
@@ -36,13 +39,13 @@ def branches(rev: Optional[str] = None, cwd: Optional[str] = None) -> List[str]:
         refs = [line.split(' ', 1) for line in refs.replace('\r', '').split('\n')]
         # Strip the first 3 components from the ref to get the branch name
         # (newer git versions have "--format=%(objectname) %(refname:lstrip=3)")
-        return [os.path.join(*Path(name).parts[3:]) for sha, name in refs if sha == current_sha]
-    return None
+        result = [os.path.join(*Path(name).parts[3:]) for sha, name in refs if sha == current_sha]
+    return result
 
 
 def branch(cwd: Optional[str] = None) -> Optional[str]:
     res = branches(cwd=cwd)
-    if res:
+    if len(res) > 0:
         return res[0]
     return None
 
